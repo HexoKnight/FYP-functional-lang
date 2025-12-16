@@ -1,4 +1,5 @@
 use crate::reprs::ast::*;
+use crate::common::WithInfo;
 
 grammar();
 
@@ -17,40 +18,51 @@ Ident: Ident<'input> = <r"[a-zA-Z]+"> => Ident { name: <> };
 
 Box<T>: Box<T> = <T> => Box::new(<>);
 
-pub Term: Term<'input> = {
+WithInfo<T>: WithInfo<Span<'input>, T> = {
+    <start:@L> <inner:T> <end:@R> => WithInfo(Span {
+        text: &input[start..end],
+        start,
+    }, inner),
+}
+
+pub Term: Term<'input> = WithInfo<RawTerm>;
+
+RawTerm: RawTerm<'input> = {
     #[precedence(level="2")]
-    "\\" <arg:AbsArg> ":" <arg_type:Type> <body:Box<Term>> => Term::Abs(Abs { arg, arg_type, body }),
+    "\\" <arg:Ident> ":" <arg_type:Type> <body:Box<WithInfo<RawTerm>>> => RawTerm::Abs(Abs { arg, arg_type, body }),
 
     #[precedence(level="1")]
     #[assoc(side="left")]
-    <func:Box<Term>> <arg:Box<Term>> => Term::App(App { func, arg }),
+    <func:Box<WithInfo<RawTerm>>> <arg:Box<WithInfo<RawTerm>>> => RawTerm::App(App { func, arg }),
 
     #[precedence(level="0")]
     <SimpleTerm>,
 };
 
-SimpleTerm: Term<'input> = {
-    "(" <Term> ")",
+SimpleTerm: RawTerm<'input> = {
+    // TODO: capture the inner info instead
+    "(" <RawTerm> ")",
 
     <ident:Ident> =>? {
-        Ok(Term::Var(Var { ident }))
+        Ok(RawTerm::Var(Var { ident }))
     },
 
-    "true" => Term::Bool(true),
-    "false" => Term::Bool(false),
+    "true" => RawTerm::Bool(true),
+    "false" => RawTerm::Bool(false),
 }
 
-AbsArg: Ident<'input> = Ident;
+Type: Type<'input> = WithInfo<RawType>;
 
-Type: Type = {
+RawType: RawType<'input> = {
     #[precedence(level="1")]
     #[assoc(side="right")]
-    <arg:Box<Type>> "->" <result:Box<Type>> => Type::Arr(Arr { arg, result }),
+    <arg:Box<WithInfo<RawType>>> "->" <result:Box<WithInfo<RawType>>> => RawType::Arr(Arr { arg, result }),
 
     #[precedence(level="0")]
     SimpleType,
 }
-SimpleType: Type = {
-    "(" <Type> ")",
-    "bool" => Type::Bool,
+SimpleType: RawType<'input> = {
+    // TODO: capture the inner info instead
+    "(" <RawType> ")",
+    "bool" => RawType::Bool,
 }

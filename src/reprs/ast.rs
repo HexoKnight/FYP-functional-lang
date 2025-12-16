@@ -1,5 +1,15 @@
+use crate::common::WithInfo;
+
+pub type Term<'i> = WithInfo<Span<'i>, RawTerm<'i>>;
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct Span<'i> {
+    pub text: &'i str,
+    pub start: usize,
+}
+
 #[derive(Eq, PartialEq, Debug)]
-pub enum Term<'i> {
+pub enum RawTerm<'i> {
     Abs(Abs<'i>),
     App(App<'i>),
 
@@ -11,7 +21,7 @@ pub enum Term<'i> {
 #[derive(Eq, PartialEq, Debug)]
 pub struct Abs<'i> {
     pub arg: Ident<'i>,
-    pub arg_type: Type,
+    pub arg_type: Type<'i>,
 
     pub body: Box<Term<'i>>,
 }
@@ -32,15 +42,17 @@ pub struct Ident<'i> {
     pub name: &'i str,
 }
 
+pub type Type<'i> = WithInfo<Span<'i>, RawType<'i>>;
+
 #[derive(Eq, PartialEq, Debug)]
-pub enum Type {
-    Arr(Arr),
+pub enum RawType<'i> {
+    Arr(Arr<'i>),
 
     Bool,
 }
 
 #[derive(Eq, PartialEq, Debug)]
-pub struct Arr {
-    pub arg: Box<Type>,
-    pub result: Box<Type>,
+pub struct Arr<'i> {
+    pub arg: Box<Type<'i>>,
+    pub result: Box<Type<'i>>,
 }

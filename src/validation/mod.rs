@@ -1,3 +1,4 @@
+use crate::common::WithInfo;
 use crate::reprs::ast;
 use crate::reprs::untyped_ir as ir;
 
@@ -30,12 +31,14 @@ impl<'i> Validate<'i> for ast::Term<'i> {
     type Validated = ir::Term<'i>;
 
     fn validate(&self, ctx: &mut Context<'i>) -> Result<Self::Validated, ValidationError> {
-        Ok(match self {
-            ast::Term::Abs(ast::Abs {
+        let WithInfo(info, term) = self;
+
+        let term = match term {
+            ast::RawTerm::Abs(ast::Abs {
                 arg,
                 arg_type,
                 body,
-            }) => ir::Term::Abs(ir::Abs {
+            }) => ir::RawTerm::Abs(ir::Abs {
                 arg_type: arg_type.validate(ctx)?,
                 body: {
                     ctx.var_stack.push(arg.name);
@@ -44,11 +47,11 @@ impl<'i> Validate<'i> for ast::Term<'i> {
                     body
                 },
             }),
-            ast::Term::App(ast::App { func, arg }) => ir::Term::App(ir::App {
+            ast::RawTerm::App(ast::App { func, arg }) => ir::RawTerm::App(ir::App {
                 func: func.validate(ctx)?,
                 arg: arg.validate(ctx)?,
             }),
-            ast::Term::Var(ast::Var { ident }) => {
+            ast::RawTerm::Var(ast::Var { ident }) => {
                 let Some(index) = ctx
                     .var_stack
                     .iter()
@@ -57,27 +60,32 @@ impl<'i> Validate<'i> for ast::Term<'i> {
                 else {
                     return Err(format!("variable '{}' not found", ident.name));
                 };
-                ir::Term::Var(ir::Var {
+                ir::RawTerm::Var(ir::Var {
                     name: ident.name,
                     index,
                 })
             }
-            ast::Term::Bool(b) => ir::Term::Bool(*b),
-        })
+            ast::RawTerm::Bool(b) => ir::RawTerm::Bool(*b),
+        };
+
+        Ok(WithInfo(*info, term))
     }
 }
 
-impl Validate<'_> for ast::Type {
-    type Validated = ir::Type;
+impl<'i> Validate<'_> for ast::Type<'i> {
+    type Validated = ir::Type<'i>;
 
     fn validate(&self, ctx: &mut Context) -> Result<Self::Validated, ValidationError> {
-        Ok(match self {
-            ast::Type::Arr(ast::Arr { arg, result }) => ir::Type::Arr(ir::Arr {
+        let WithInfo(info, ty) = self;
+
+        let ty = match ty {
+            ast::RawType::Arr(ast::Arr { arg, result }) => ir::RawType::Arr(ir::Arr {
                 arg: arg.validate(ctx)?,
                 result: result.validate(ctx)?,
             }),
-            ast::Type::Bool => ir::Type::Bool,
-        })
+            ast::RawType::Bool => ir::RawType::Bool,
+        };
+        Ok(WithInfo(*info, ty))
     }
 }
 
