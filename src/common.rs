@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+#[derive(Clone)]
 pub struct WithInfo<I, T>(pub I, pub T);
 
 impl<I, T: Debug> Debug for WithInfo<I, T> {

@@ -47,9 +47,12 @@ fn type_check(input: &str) -> Result<(fl::reprs::typed_ir::Term<'_>, String), St
     fl::typing::type_check(&untyped_ir).map_err(|e| format!("typing error: {e}"))
 }
 
-fn evaluate(input: &str) -> Result<(), String> {
-    let typed_ir = type_check(input)?;
-    todo!()
+fn evaluate(input: &str) -> Result<(fl::reprs::value::Value<'_, ()>, String), String> {
+    let (typed_ir, ty) = type_check(input)?;
+
+    let value =
+        fl::evaluation::evaluate(&typed_ir).map_err(|e| format!("evaluation error: {e}"))?;
+    Ok((value, ty))
 }
 
 fn program() -> Result<(), String> {
