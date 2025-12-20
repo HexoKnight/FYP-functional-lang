@@ -9,14 +9,13 @@ type ParseError<'i> =
 
 type UserParserError = String;
 
+#[derive(Default)]
 pub struct Parser {
     term_parser: syntax::TermParser,
 }
 impl Parser {
     pub fn new() -> Self {
-        Self {
-            term_parser: syntax::TermParser::new(),
-        }
+        Self::default()
     }
 
     pub fn parse<'i>(&self, input: &'i str) -> Result<Term<'i>, ParseError<'i>> {
@@ -31,7 +30,7 @@ pub mod tests {
     use super::*;
 
     #[track_caller]
-    pub fn parse_success(src: &str) -> Term<'_> {
+    pub(crate) fn parse_success(src: &str) -> Term<'_> {
         match Parser::new().parse(src) {
             Ok(o) => o,
             Err(e) => panic!("parse failure:\n'{}'\n{}", src, e),
@@ -39,7 +38,7 @@ pub mod tests {
     }
 
     #[track_caller]
-    pub fn parse_failure(src: &'_ str) -> ParseError<'_> {
+    pub(crate) fn parse_failure(src: &'_ str) -> ParseError<'_> {
         match Parser::new().parse(src) {
             Ok(o) => panic!("parse success:\n'{}'\n{:#?}", src, o),
             Err(e) => e,
@@ -47,7 +46,7 @@ pub mod tests {
     }
 
     #[track_caller]
-    pub fn parse_eq(src1: &str, src2: &str) {
+    fn parse_eq(src1: &str, src2: &str) {
         assert_eq!(parse_success(src1), parse_success(src2))
     }
 

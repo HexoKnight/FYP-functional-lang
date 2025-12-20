@@ -20,7 +20,7 @@ mod context {
     // eg. not im::Vector :(
     // see: https://doc.rust-lang.org/nomicon/dropck.html
     // but perhaps some kind of cons list, though Vec works fine for now
-    /// Cheaply clonable (hopefully) append-only stack
+    /// Cheaply cloneable (hopefully) append-only stack
     type Stack<T> = Vec<T>;
 
     #[derive(Clone, Debug)]

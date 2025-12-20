@@ -28,7 +28,7 @@ enum Subcommands {
     Validate,
     /// Parse, validate and type-check source, displaying a representation on stdout
     TypeCheck,
-    /// Parse, validate, type-check and evalutate source, displaying the output on stdout
+    /// Parse, validate, type-check and evaluate source, displaying the output on stdout
     Evaluate,
 }
 

@@ -26,7 +26,7 @@ where
 {
     type TypeChecked;
 
-    fn type_check<'s>(
+    fn type_check(
         &self,
         ctx: &mut Context<'ctx>,
     ) -> Result<(Self::TypeChecked, InternedType<'ctx>), TypeCheckError>;
@@ -52,7 +52,7 @@ impl<'i: 'ctx, 'ctx, T: TypeCheck<'i, 'ctx>> TypeCheck<'i, 'ctx> for Box<T> {
         &self,
         ctx: &mut Context<'ctx>,
     ) -> Result<(Self::TypeChecked, InternedType<'ctx>), TypeCheckError> {
-        T::type_check(&self, ctx).map(|(term, ty)| (Box::new(term), ty))
+        T::type_check(self, ctx).map(|(term, ty)| (Box::new(term), ty))
     }
 }
 
@@ -115,10 +115,9 @@ impl<'i: 'ctx, 'ctx> TypeCheck<'i, 'ctx> for uir::Term<'i> {
             }
             uir::RawTerm::Var(uir::Var { name: _, index }) => (
                 tir::RawTerm::Var(tir::Var { index: *index }),
-                *ctx.var_ty_stack
-                    .iter()
-                    .nth_back(*index)
-                    .ok_or_else(|| format!("something has gone very wrong"))?,
+                *ctx.var_ty_stack.iter().nth_back(*index).ok_or_else(|| {
+                    format!("illegal failure: variable index not found: {index}\n")
+                })?,
             ),
             uir::RawTerm::Bool(b) => (tir::RawTerm::Bool(*b), ctx.ty_arena.intern(Type::Bool)),
         };
@@ -155,7 +154,7 @@ pub mod tests {
         let untyped_ir = validate_success(src);
         match type_check(&untyped_ir) {
             Ok(o) => o,
-            Err(e) => panic!("validate failure:\n'{}'\n{}", src, e),
+            Err(e) => panic!("type check failure:\n'{}'\n{}", src, e),
         }
     }
 
@@ -163,7 +162,7 @@ pub mod tests {
     pub(crate) fn type_check_failure(src: &str) -> TypeCheckError {
         let ast = validate_success(src);
         match type_check(&ast) {
-            Ok(o) => panic!("validate success:\n'{}'\n{:#?}", src, o),
+            Ok(o) => panic!("type check success:\n'{}'\n{:#?}", src, o),
             Err(e) => e,
         }
     }

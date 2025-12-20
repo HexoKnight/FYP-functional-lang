@@ -23,7 +23,7 @@ impl<'i, T: Validate<'i>> Validate<'i> for Box<T> {
     type Validated = Box<T::Validated>;
 
     fn validate(&self, ctx: &mut Context<'i>) -> Result<Self::Validated, ValidationError> {
-        T::validate(&self, ctx).map(Box::new)
+        T::validate(self, ctx).map(Box::new)
     }
 }
 
@@ -91,14 +91,12 @@ impl<'i> Validate<'_> for ast::Type<'i> {
 
 #[cfg(test)]
 pub mod tests {
-    use pretty_assertions::assert_eq;
-
     use crate::parsing::tests::parse_success;
 
     use super::*;
 
     #[track_caller]
-    pub fn validate_success(src: &str) -> ir::Term<'_> {
+    pub(crate) fn validate_success(src: &str) -> ir::Term<'_> {
         let ast = parse_success(src);
         match validate(&ast) {
             Ok(o) => o,
@@ -107,7 +105,7 @@ pub mod tests {
     }
 
     #[track_caller]
-    pub fn validate_failure(src: &str) -> ValidationError {
+    pub(crate) fn validate_failure(src: &str) -> ValidationError {
         let ast = parse_success(src);
         match validate(&ast) {
             Ok(o) => panic!("validate success:\n'{}'\n{:#?}", src, o),
@@ -115,13 +113,8 @@ pub mod tests {
         }
     }
 
-    #[track_caller]
-    pub fn validate_eq(src1: &str, src2: &str) {
-        assert_eq!(validate_success(src1), validate_success(src2))
-    }
-
     #[test]
-    fn parsing() {
+    fn validation() {
         validate_success(r"\x:bool x");
         validate_success(r"(\x:bool x)");
         validate_success(r"\x:bool \ y : bool x");
