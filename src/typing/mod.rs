@@ -1,86 +1,130 @@
 use typed_arena::Arena;
 
 use crate::common::WithInfo;
-use crate::intern::InternedArena;
 use crate::reprs::{
     typed_ir::{self as tir},
     untyped_ir as uir,
 };
 
+use self::context::{Context, ContextInner};
 use self::ty::Type;
 
 mod ty;
 
-type TypeCheckError = String;
+mod context {
+    use typed_arena::Arena;
 
-type InternedType<'ctx> = &'ctx Type<'ctx>;
+    use crate::intern::InternedArena;
 
-struct Context<'ctx> {
-    ty_arena: InternedArena<'ctx, Type<'ctx>>,
-    var_ty_stack: Vec<InternedType<'ctx>>,
+    use super::{InternedType, ty::Type};
+
+    // doesn't suffer from the same dropck issues as self references
+    // do not (currently) pass through this type
+    /// Cheaply cloneable (hopefully) append-only stack
+    type Stack<T> = Vec<T>;
+
+    pub(super) struct ContextInner<'a> {
+        ty_arena: InternedArena<'a, Type<'a>>,
+    }
+    impl<'a> ContextInner<'a> {
+        pub(super) fn new(arena: &'a Arena<Type<'a>>) -> Self {
+            Self {
+                ty_arena: InternedArena::with_arena(arena),
+            }
+        }
+
+        fn intern(&self, var: Type<'a>) -> InternedType<'a> {
+            self.ty_arena.intern(var)
+        }
+    }
+
+    #[derive(Clone)]
+    pub(super) struct Context<'a, 'inn> {
+        inner: &'inn ContextInner<'a>,
+        var_ty_stack: Stack<InternedType<'a>>,
+    }
+
+    impl<'a, 'inn> Context<'a, 'inn> {
+        pub(super) fn with_inner(inner: &'inn ContextInner<'a>) -> Self {
+            Self {
+                inner,
+                var_ty_stack: Vec::new(),
+            }
+        }
+
+        pub(super) fn intern<'s>(&'s self, var: Type<'a>) -> InternedType<'a> {
+            self.inner.intern(var)
+        }
+
+        pub(super) fn push_var_ty(&self, var_ty: InternedType<'a>) -> Self {
+            let mut new = self.clone();
+            new.var_ty_stack.push(var_ty);
+            new
+        }
+
+        pub(super) fn get_var_ty(&self, index: usize) -> Option<&'a Type<'a>> {
+            self.var_ty_stack.iter().cloned::<&_>().nth_back(index)
+        }
+    }
 }
 
-trait TypeCheck<'i, 'ctx>
-where
-    'i: 'ctx,
-{
+type TypeCheckError = String;
+
+type InternedType<'a> = &'a Type<'a>;
+
+trait TypeCheck<'i, 'a> {
     type TypeChecked;
 
     fn type_check(
         &self,
-        ctx: &mut Context<'ctx>,
-    ) -> Result<(Self::TypeChecked, InternedType<'ctx>), TypeCheckError>;
+        ctx: &Context<'a, '_>,
+    ) -> Result<(Self::TypeChecked, InternedType<'a>), TypeCheckError>;
 }
 
 pub fn type_check<'i>(
     untyped_ir: &uir::Term<'i>,
 ) -> Result<(tir::Term<'i>, String), TypeCheckError> {
     let arena = Arena::new();
-    let mut ctx = Context {
-        ty_arena: InternedArena::with_arena(&arena),
-        var_ty_stack: Vec::new(),
-    };
+    let inner = ContextInner::new(&arena);
+    let ctx = Context::with_inner(&inner);
 
-    let (term, ty) = untyped_ir.type_check(&mut ctx)?;
+    let (term, ty) = untyped_ir.type_check(&ctx)?;
     Ok((term, format!("{ty:?}")))
 }
 
-impl<'i: 'ctx, 'ctx, T: TypeCheck<'i, 'ctx>> TypeCheck<'i, 'ctx> for Box<T> {
+impl<'i, 'a, T: TypeCheck<'i, 'a>> TypeCheck<'i, 'a> for Box<T> {
     type TypeChecked = Box<T::TypeChecked>;
 
-    fn type_check<'s>(
+    fn type_check(
         &self,
-        ctx: &mut Context<'ctx>,
-    ) -> Result<(Self::TypeChecked, InternedType<'ctx>), TypeCheckError> {
+        ctx: &Context<'a, '_>,
+    ) -> Result<(Self::TypeChecked, InternedType<'a>), TypeCheckError> {
         T::type_check(self, ctx).map(|(term, ty)| (Box::new(term), ty))
     }
 }
 
-impl<'i: 'ctx, 'ctx> TypeCheck<'i, 'ctx> for uir::Term<'i> {
+impl<'i, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
     type TypeChecked = tir::Term<'i>;
 
-    fn type_check<'s>(
+    fn type_check(
         &self,
-        ctx: &mut Context<'ctx>,
-    ) -> Result<(Self::TypeChecked, InternedType<'ctx>), TypeCheckError> {
+        ctx: &Context<'a, '_>,
+    ) -> Result<(Self::TypeChecked, InternedType<'a>), TypeCheckError> {
         let WithInfo(info, term) = self;
 
         let (term, ty) = match term {
             uir::RawTerm::Abs(uir::Abs { arg_type, body }) => {
                 let arg_type = arg_type.eval(ctx)?;
-                ctx.var_ty_stack.push(arg_type);
 
-                let (body, body_type) = body.type_check(ctx)?;
+                let ctx_ = ctx.push_var_ty(arg_type);
+                let (body, body_type) = body.type_check(&ctx_)?;
 
                 let ty = Type::Arr(ty::Arr {
                     arg: arg_type,
                     result: body_type,
                 });
 
-                (
-                    tir::RawTerm::Abs(tir::Abs { body }),
-                    ctx.ty_arena.intern(ty),
-                )
+                (tir::RawTerm::Abs(tir::Abs { body }), ctx.intern(ty))
             }
             uir::RawTerm::App(uir::App { func, arg }) => {
                 let (func, func_type) = func.type_check(ctx)?;
@@ -115,19 +159,19 @@ impl<'i: 'ctx, 'ctx> TypeCheck<'i, 'ctx> for uir::Term<'i> {
             }
             uir::RawTerm::Var(uir::Var { name: _, index }) => (
                 tir::RawTerm::Var(tir::Var { index: *index }),
-                *ctx.var_ty_stack.iter().nth_back(*index).ok_or_else(|| {
+                ctx.get_var_ty(*index).ok_or_else(|| {
                     format!("illegal failure: variable index not found: {index}\n")
                 })?,
             ),
-            uir::RawTerm::Bool(b) => (tir::RawTerm::Bool(*b), ctx.ty_arena.intern(Type::Bool)),
+            uir::RawTerm::Bool(b) => (tir::RawTerm::Bool(*b), ctx.intern(Type::Bool)),
         };
 
         Ok((WithInfo(*info, term), ty))
     }
 }
 
-impl<'i: 'ctx, 'ctx> uir::Type<'i> {
-    fn eval(&self, ctx: &mut Context<'ctx>) -> Result<InternedType<'ctx>, TypeCheckError> {
+impl<'i, 'a> uir::Type<'i> {
+    fn eval(&self, ctx: &Context<'a, '_>) -> Result<InternedType<'a>, TypeCheckError> {
         let WithInfo(_info, ty) = self;
 
         let ty = match ty {
@@ -139,7 +183,7 @@ impl<'i: 'ctx, 'ctx> uir::Type<'i> {
             uir::RawType::Bool => Type::Bool,
         };
 
-        Ok(ctx.ty_arena.intern(ty))
+        Ok(ctx.intern(ty))
     }
 }
 
