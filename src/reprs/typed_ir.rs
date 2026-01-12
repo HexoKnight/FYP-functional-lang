@@ -1,4 +1,7 @@
-use crate::{common::WithInfo, reprs::ast::Span};
+use crate::{
+    common::WithInfo,
+    reprs::{common::ArgStructure, common::Span},
+};
 
 pub type Term<'i> = WithInfo<Span<'i>, RawTerm<'i>>;
 
@@ -9,11 +12,14 @@ pub enum RawTerm<'i> {
 
     Var(Var),
 
+    Tuple(Box<[Term<'i>]>),
+
     Bool(bool),
 }
 
 #[derive(Eq, PartialEq, Debug)]
 pub struct Abs<'i> {
+    pub arg_structure: ArgStructure,
     pub body: Box<Term<'i>>,
 }
 

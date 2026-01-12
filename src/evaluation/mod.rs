@@ -1,6 +1,8 @@
+use itertools::{Itertools, zip_eq};
 use typed_arena::Arena;
 
 use crate::common::WithInfo;
+use crate::reprs::common::ArgStructure;
 use crate::reprs::typed_ir::{self as tir};
 use crate::reprs::value::{self, Abs, RawValue};
 
@@ -41,9 +43,10 @@ mod context {
             }
         }
 
-        pub(super) fn push_var(&self, var: Value<'i, 'ir, 'a>) -> Self {
+        pub(super) fn push_vars(&self, vars: impl IntoIterator<Item = Value<'i, 'ir, 'a>>) -> Self {
             let mut new = self.clone();
-            new.var_stack.push(self.var_arena.alloc(var));
+            new.var_stack
+                .extend(vars.into_iter().map(|v| &*self.var_arena.alloc(v)));
             new
         }
 
@@ -92,12 +95,21 @@ impl<'i: 'ir, 'ir: 'a, 'a> Evaluate<'i, 'ir, 'a> for tir::Term<'i> {
 
         let value = match term {
             // we cannot evaluate a solitary abstraction any further so we treat it like a closure
-            tir::RawTerm::Abs(tir::Abs { body }) => RawValue::Abs(value::Abs {
+            tir::RawTerm::Abs(tir::Abs {
+                arg_structure,
+                body,
+            }) => RawValue::Abs(value::Abs {
                 closed_ctx: ctx.create_closure(),
+                arg_structure: arg_structure.clone(),
                 body: body.as_ref(),
             }),
             tir::RawTerm::App(tir::App { func, arg }) => {
-                let RawValue::Abs(value::Abs { closed_ctx, body }) = func.evaluate(ctx)?.1 else {
+                let RawValue::Abs(value::Abs {
+                    closed_ctx,
+                    arg_structure,
+                    body,
+                }) = func.evaluate(ctx)?.1
+                else {
                     return Err(
                         "illegal failure: type checking failed: application on non-abstraction"
                             .to_string(),
@@ -105,8 +117,9 @@ impl<'i: 'ir, 'ir: 'a, 'a> Evaluate<'i, 'ir, 'a> for tir::Term<'i> {
                 };
 
                 let arg = arg.evaluate(ctx)?;
+                let args = arg.destructure(arg_structure)?;
 
-                let ctx_ = ctx.apply_closure(closed_ctx).push_var(arg);
+                let ctx_ = ctx.apply_closure(closed_ctx).push_vars(args);
                 let res = body.evaluate(&ctx_)?;
                 res.1
             }
@@ -116,9 +129,53 @@ impl<'i: 'ir, 'ir: 'a, 'a> Evaluate<'i, 'ir, 'a> for tir::Term<'i> {
                 .1
                 // TODO: maybe try eliminate this clone??
                 .clone(),
+            tir::RawTerm::Tuple(elems) => {
+                RawValue::Tuple(elems.iter().map(|e| e.evaluate(ctx)).try_collect()?)
+            }
             tir::RawTerm::Bool(b) => RawValue::Bool(*b),
         };
 
         Ok(WithInfo(*info, value))
+    }
+}
+
+impl Value<'_, '_, '_> {
+    fn destructure(
+        self,
+        arg_structure: ArgStructure,
+    ) -> Result<impl Iterator<Item = Self>, EvaluationError> {
+        fn inner<'i, 'ir, 'a>(
+            arg_structure: ArgStructure,
+            val: Value<'i, 'ir, 'a>,
+            output: &mut impl FnMut(Value<'i, 'ir, 'a>),
+        ) -> Result<(), EvaluationError> {
+            let WithInfo(info, val) = val;
+            match (arg_structure, val) {
+                (ArgStructure::Tuple(st_elems), RawValue::Tuple(val_elems)) => {
+                    let st_len = st_elems.len();
+                    let val_len = val_elems.len();
+                    if st_len != val_len {
+                        // TODO
+                        return Err(format!(
+                            "illegal failure: type checking failed: {st_len}-tuple destructure on {val_len}-tuple"
+                        ));
+                    }
+                    zip_eq(st_elems, val_elems).try_for_each(|(st, val)| inner(st, val, output))?;
+                }
+
+                (ArgStructure::Tuple(_), _) => {
+                    // TODO
+                    return Err(
+                        "illegal failure: type checking failed: tuple destructure on non-tuple"
+                            .to_string(),
+                    );
+                }
+                (ArgStructure::Var, val) => output(WithInfo(info, val)),
+            }
+            Ok(())
+        }
+        let mut buffer = Vec::new();
+        inner(arg_structure, self, &mut |val| buffer.push(val))?;
+        Ok(buffer.into_iter())
     }
 }

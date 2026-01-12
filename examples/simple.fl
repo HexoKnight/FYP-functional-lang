@@ -1,3 +1,21 @@
-(\id:bool->bool
-  (\y:bool id y) false
-) (\x:bool x)
+(\
+  (
+    uncurry,
+    K,
+  ): (
+    (bool -> () -> bool) -> ((bool, ()) -> bool),
+    bool -> () -> bool,
+  )
+
+  (uncurry K) (K true (), ())
+)
+
+(
+  // uncurry
+  (\f: bool -> () -> bool
+    \(a, b): (bool, ())
+      f a b
+  ),
+  // K
+  (\x:bool \():() x),
+)

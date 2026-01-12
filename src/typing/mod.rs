@@ -1,6 +1,8 @@
+use itertools::{Itertools, zip_eq};
 use typed_arena::Arena;
 
 use crate::common::WithInfo;
+use crate::reprs::common::ArgStructure;
 use crate::reprs::{
     typed_ir::{self as tir},
     untyped_ir as uir,
@@ -57,9 +59,12 @@ mod context {
             self.inner.intern(var)
         }
 
-        pub(super) fn push_var_ty(&self, var_ty: InternedType<'a>) -> Self {
+        pub(super) fn push_var_tys(
+            &self,
+            vars: impl IntoIterator<Item = InternedType<'a>>,
+        ) -> Self {
             let mut new = self.clone();
-            new.var_ty_stack.push(var_ty);
+            new.var_ty_stack.extend(vars);
             new
         }
 
@@ -114,10 +119,15 @@ impl<'i, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
         let WithInfo(info, term) = self;
 
         let (term, ty) = match term {
-            uir::RawTerm::Abs(uir::Abs { arg_type, body }) => {
+            uir::RawTerm::Abs(uir::Abs {
+                arg_structure,
+                arg_type,
+                body,
+            }) => {
                 let arg_type = arg_type.eval(ctx)?;
+                let destructured_arg_types = arg_type.destructure(arg_structure)?;
 
-                let ctx_ = ctx.push_var_ty(arg_type);
+                let ctx_ = ctx.push_var_tys(destructured_arg_types);
                 let (body, body_type) = body.type_check(&ctx_)?;
 
                 let ty = Type::Arr(ty::Arr {
@@ -125,7 +135,13 @@ impl<'i, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     result: body_type,
                 });
 
-                (tir::RawTerm::Abs(tir::Abs { body }), ctx.intern(ty))
+                (
+                    tir::RawTerm::Abs(tir::Abs {
+                        arg_structure: arg_structure.clone(),
+                        body,
+                    }),
+                    ctx.intern(ty),
+                )
             }
             uir::RawTerm::App(uir::App { func, arg }) => {
                 let (func, func_type) = func.type_check(ctx)?;
@@ -162,6 +178,14 @@ impl<'i, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     format!("illegal failure: variable index not found: {index}\n")
                 })?,
             ),
+            uir::RawTerm::Tuple(elems) => {
+                let (elems, types): (Vec<_>, Vec<_>) =
+                    elems.iter().map(|e| e.type_check(ctx)).try_collect()?;
+                (
+                    tir::RawTerm::Tuple(elems.into_boxed_slice()),
+                    ctx.intern(Type::Tuple(types.into_boxed_slice())),
+                )
+            }
             uir::RawTerm::Bool(b) => (tir::RawTerm::Bool(*b), ctx.intern(Type::Bool)),
         };
 
@@ -179,6 +203,9 @@ impl<'a> uir::Type<'_> {
                 let result = result.as_ref().eval(ctx)?;
                 Type::Arr(ty::Arr { arg, result })
             }
+            uir::RawType::Tuple(elems) => {
+                Type::Tuple(elems.iter().map(|e| e.eval(ctx)).try_collect()?)
+            }
             uir::RawType::Bool => Type::Bool,
         };
 
@@ -188,4 +215,41 @@ impl<'a> uir::Type<'_> {
 
 fn eq_ty<'a>(ty1: InternedType<'a>, ty2: InternedType<'a>) -> bool {
     std::ptr::eq(ty1, ty2)
+}
+
+impl Type<'_> {
+    fn destructure(
+        &self,
+        arg_structure: &ArgStructure,
+    ) -> Result<impl Iterator<Item = &Self>, TypeCheckError> {
+        fn inner<'ctx, 's>(
+            arg_structure: &ArgStructure,
+            ty: &'s Type<'ctx>,
+            output: &mut impl FnMut(&'s Type<'ctx>),
+        ) -> Result<(), TypeCheckError> {
+            match (arg_structure, ty) {
+                (ArgStructure::Tuple(st_elems), Type::Tuple(ty_elems)) => {
+                    let st_len = st_elems.len();
+                    let ty_len = ty_elems.len();
+                    if st_len != ty_len {
+                        // TODO
+                        return Err(format!(
+                            "destructured tuple has {st_len} elements\nwhile it's type has {ty_len} elements"
+                        ));
+                    }
+                    zip_eq(st_elems, ty_elems).try_for_each(|(st, ty)| inner(st, ty, output))?;
+                }
+
+                (ArgStructure::Tuple(_), ty) => {
+                    // TODO
+                    return Err(format!("cannot tuple-destructure value of type {ty:?}"));
+                }
+                (ArgStructure::Var, ty) => output(ty),
+            }
+            Ok(())
+        }
+        let mut buffer = Vec::new();
+        inner(arg_structure, self, &mut |ty| buffer.push(ty))?;
+        Ok(buffer.into_iter())
+    }
 }

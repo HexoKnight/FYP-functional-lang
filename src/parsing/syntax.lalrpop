@@ -1,5 +1,5 @@
 use crate::reprs::ast::*;
-use crate::common::WithInfo;
+use crate::{common::WithInfo, reprs::common::Span};
 
 grammar();
 
@@ -29,7 +29,7 @@ pub Term: Term<'input> = WithInfo<RawTerm>;
 
 RawTerm: RawTerm<'input> = {
     #[precedence(level="2")]
-    "\\" <arg:Ident> ":" <arg_type:Type> <body:Box<WithInfo<RawTerm>>> => RawTerm::Abs(Abs { arg, arg_type, body }),
+    "\\" <arg:Assignee> ":" <arg_type:Type> <body:Box<WithInfo<RawTerm>>> => RawTerm::Abs(Abs { arg, arg_type, body }),
 
     #[precedence(level="1")]
     #[assoc(side="left")]
@@ -47,8 +47,22 @@ SimpleTerm: RawTerm<'input> = {
         Ok(RawTerm::Var(Var { ident }))
     },
 
+    Tuple<Term> => RawTerm::Tuple(<>),
+
     "true" => RawTerm::Bool(true),
     "false" => RawTerm::Bool(false),
+}
+
+Assignee: Assignee<'input> = {
+    Tuple<Assignee> => Assignee::Tuple(<>),
+    Ident => Assignee::Ident(<>),
+}
+
+Tuple<T>: Box<[T]> = {
+    "(" ")" => Box::new([]),
+    // require trailing comma on 1-tuple
+    "(" <T> "," ")" => Box::new([<>]),
+    "(" <first:T> <rest:("," <T>)+> ","? ")" => std::iter::once(first).chain(rest).collect(),
 }
 
 Type: Type<'input> = WithInfo<RawType>;
@@ -64,5 +78,8 @@ RawType: RawType<'input> = {
 SimpleType: RawType<'input> = {
     // TODO: capture the inner info instead
     "(" <RawType> ")",
+
+    Tuple<Type> => RawType::Tuple(<>),
+
     "bool" => RawType::Bool,
 }

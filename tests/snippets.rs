@@ -119,6 +119,11 @@ fn parsing() {
         r"\x:bool ->  bool -> bool  x x x",
         r"\x:bool -> (bool -> bool)(x x)x",
     );
+
+    parse_success(r"(true, false)");
+    parse_success(r"()");
+    parse_success(r"(\x:(bool, ()) x) (false, ())");
+    parse_success(r"(\(x, y):(bool, bool) x) (false, true)");
 }
 
 #[test]
@@ -132,6 +137,8 @@ fn validation() {
 
     validate_success(r"(\x:bool x) true");
     validate_success(r"(\x: bool -> bool x) (\y: bool false)");
+
+    validate_success(r"\(x,y,(z,x)): ((),(),((),bool)) x");
 }
 
 #[test]
@@ -154,6 +161,12 @@ fn type_checking() {
     type_check_failure(&wrapped(&[&idf, &c], r"idf c"));
 
     type_check_failure(&wrapped(&[&idf, &c], r"idf c"));
+
+    type_check_success(r"\(x,y,(z,x)): ((),(),((),bool)) x");
+    type_check_success(r"\(x,y):(bool,bool) x");
+    type_check_failure(r"\(x,y,(z,x)): ((),(),(),bool) x");
+    type_check_success(r"\(x,x):(bool,()) (\():()()) x");
+    type_check_failure(r"\(x,x):(bool,()) (\y:bool ()) x");
 }
 
 #[test]
@@ -179,4 +192,6 @@ fn evaluation() {
     evaluate_success(&wrapped(&[&id, &idf, &c], r"idf (c (id true))"));
 
     evaluate_eq(r"(\x:bool true) false", r"true");
+
+    evaluate_eq(r"(\(x,y,z):(bool,(),()) x) (true, (), ())", r"true")
 }

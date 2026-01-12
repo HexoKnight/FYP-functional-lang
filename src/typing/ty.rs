@@ -6,6 +6,8 @@ type TypeRef<'ctx> = &'ctx Type<'ctx>;
 pub enum Type<'ctx> {
     Arr(Arr<'ctx>),
 
+    Tuple(Box<[TypeRef<'ctx>]>),
+
     Bool,
 }
 
