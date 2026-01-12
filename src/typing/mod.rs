@@ -138,8 +138,7 @@ impl<'i, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                         }),
                         arg_type,
                     ) => {
-                        // TODO: ensure pointer equality optimisation
-                        if *func_arg_type == arg_type {
+                        if eq_ty(func_arg_type, arg_type) {
                             *func_result_type
                         } else {
                             // TODO
@@ -185,6 +184,10 @@ impl<'a> uir::Type<'_> {
 
         Ok(ctx.intern(ty))
     }
+}
+
+fn eq_ty<'a>(ty1: InternedType<'a>, ty2: InternedType<'a>) -> bool {
+    std::ptr::eq(ty1, ty2)
 }
 
 #[cfg(test)]
