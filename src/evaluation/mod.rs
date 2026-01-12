@@ -70,7 +70,7 @@ mod context {
 
 type Value<'i, 'ir, 'a> = value::Value<'i, Abs<'i, 'ir, 'a>>;
 
-type EvaluationError = String;
+pub type EvaluationError = String;
 
 trait Evaluate<'i, 'ir, 'a> {
     type Evaluated;
@@ -120,51 +120,5 @@ impl<'i: 'ir, 'ir: 'a, 'a> Evaluate<'i, 'ir, 'a> for tir::Term<'i> {
         };
 
         Ok(WithInfo(*info, value))
-    }
-}
-
-#[cfg(test)]
-pub mod tests {
-    use crate::typing::tests::{def, type_check_success, wrapped};
-
-    use super::*;
-
-    #[track_caller]
-    pub(crate) fn evaluate_success(src: &str) -> value::Value<'_> {
-        let (typed_ir, _) = type_check_success(src);
-        match evaluate(&typed_ir) {
-            Ok(o) => o,
-            Err(e) => panic!("evaluate failure:\n'{}'\n{}", src, e),
-        }
-    }
-
-    #[track_caller]
-    fn evaluate_eq(src1: &str, src2: &str) {
-        assert_eq!(evaluate_success(src1), evaluate_success(src2))
-    }
-
-    #[test]
-    fn evaluation() {
-        evaluate_success(r"\x:bool x");
-        evaluate_success(r"\x:bool \y:bool x");
-
-        evaluate_success(r"(\x:bool x) true");
-        evaluate_success(r"(\x: bool -> bool x true) (\y: bool false)");
-
-        evaluate_success(r"(\id:bool->bool id) (\x:bool x)");
-
-        evaluate_eq(r"(\x:bool \y:bool (\z:bool z) x) false true", r"false");
-
-        let id = def(r"id:bool->bool", r"\x:bool x");
-        let idf = def(r"idf:(bool->bool)->bool->bool", r"\x:bool->bool x");
-        let c = def(r"c:bool->bool->bool", r"\x:bool \y:bool x");
-
-        evaluate_eq(
-            &wrapped(&[&id, &idf, &c], r"(c true) ((idf id) false)"),
-            r"true",
-        );
-        evaluate_success(&wrapped(&[&id, &idf, &c], r"idf (c (id true))"));
-
-        evaluate_eq(r"(\x:bool true) false", r"true");
     }
 }

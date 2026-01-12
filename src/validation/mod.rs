@@ -37,7 +37,7 @@ mod context {
     }
 }
 
-type ValidationError = String;
+pub type ValidationError = String;
 
 trait Validate<'i> {
     type Validated;
@@ -106,43 +106,5 @@ impl<'i> Validate<'_> for ast::Type<'i> {
             ast::RawType::Bool => ir::RawType::Bool,
         };
         Ok(WithInfo(*info, ty))
-    }
-}
-
-#[cfg(test)]
-pub mod tests {
-    use crate::parsing::tests::parse_success;
-
-    use super::*;
-
-    #[track_caller]
-    pub(crate) fn validate_success(src: &str) -> ir::Term<'_> {
-        let ast = parse_success(src);
-        match validate(&ast) {
-            Ok(o) => o,
-            Err(e) => panic!("validate failure:\n'{}'\n{}", src, e),
-        }
-    }
-
-    #[track_caller]
-    pub(crate) fn validate_failure(src: &str) -> ValidationError {
-        let ast = parse_success(src);
-        match validate(&ast) {
-            Ok(o) => panic!("validate success:\n'{}'\n{:#?}", src, o),
-            Err(e) => e,
-        }
-    }
-
-    #[test]
-    fn validation() {
-        validate_success(r"\x:bool x");
-        validate_success(r"(\x:bool x)");
-        validate_success(r"\x:bool \ y : bool x");
-        validate_failure(r"\x:bool y");
-
-        validate_success(r"\x:bool x x");
-
-        validate_success(r"(\x:bool x) true");
-        validate_success(r"(\x: bool -> bool x) (\y: bool false)");
     }
 }

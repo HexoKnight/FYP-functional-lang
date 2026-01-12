@@ -69,9 +69,9 @@ mod context {
     }
 }
 
-type TypeCheckError = String;
-
 type InternedType<'a> = &'a Type<'a>;
+
+pub type TypeCheckError = String;
 
 trait TypeCheck<'i, 'a> {
     type TypeChecked;
@@ -188,63 +188,4 @@ impl<'a> uir::Type<'_> {
 
 fn eq_ty<'a>(ty1: InternedType<'a>, ty2: InternedType<'a>) -> bool {
     std::ptr::eq(ty1, ty2)
-}
-
-#[cfg(test)]
-pub mod tests {
-    use crate::validation::tests::validate_success;
-
-    use super::*;
-
-    #[track_caller]
-    pub(crate) fn type_check_success(src: &str) -> (tir::Term<'_>, String) {
-        let untyped_ir = validate_success(src);
-        match type_check(&untyped_ir) {
-            Ok(o) => o,
-            Err(e) => panic!("type check failure:\n'{}'\n{}", src, e),
-        }
-    }
-
-    #[track_caller]
-    pub(crate) fn type_check_failure(src: &str) -> TypeCheckError {
-        let ast = validate_success(src);
-        match type_check(&ast) {
-            Ok(o) => panic!("type check success:\n'{}'\n{:#?}", src, o),
-            Err(e) => e,
-        }
-    }
-
-    pub(crate) fn wrapped(wrappers: &[impl Fn(&str) -> String], inner: &str) -> String {
-        let mut res = inner.to_string();
-        for wrapper in wrappers {
-            res = wrapper(&res);
-        }
-        res
-    }
-
-    pub(crate) fn def(signature: &str, body: &str) -> impl Fn(&str) -> String {
-        move |s: &str| [r"(\", signature, "(", s, "))(", body, ")"].join("\n")
-    }
-
-    #[test]
-    fn type_checking() {
-        type_check_success(r"\x:bool x");
-        type_check_success(r"\x:bool \y:bool x");
-
-        type_check_success(r"(\x:bool x) true");
-        type_check_success(r"\x:bool->bool x false");
-        type_check_success(r"(\x: bool -> bool x) (\y: bool false)");
-
-        type_check_success(r"(\id:bool->bool id) (\x:bool x)");
-
-        let id = def(r"id:bool->bool", r"\x:bool x");
-        let idf = def(r"idf:(bool->bool)->bool->bool", r"\x:bool->bool x");
-        let c = def(r"c:bool->bool->bool", r"\x:bool \y:bool x");
-
-        type_check_success(&wrapped(&[&id, &idf, &c], r"(c true) ((idf id) false)"));
-        type_check_success(&wrapped(&[&id, &idf, &c], r"idf (c (id true))"));
-        type_check_failure(&wrapped(&[&idf, &c], r"idf c"));
-
-        type_check_failure(&wrapped(&[&idf, &c], r"idf c"));
-    }
 }
