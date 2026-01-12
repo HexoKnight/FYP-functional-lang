@@ -1,0 +1,3 @@
+(\id:bool->bool
+  (\y:bool id y) false
+) (\x:bool x)

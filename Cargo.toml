@@ -22,6 +22,7 @@ lalrpop-util = { version = "0.22.2", features = ["lexer"] }
 typed-arena = "2.0.2"
 
 [dev-dependencies]
+include_dir = "0.7.4"
 pretty_assertions = "1.4.1"
 
 [build-dependencies]
