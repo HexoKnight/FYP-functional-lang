@@ -36,8 +36,8 @@ RawTerm: RawTerm<'input> = {
     <func:Box<WithInfo<RawTerm>>> <arg:Box<WithInfo<RawTerm>>> => RawTerm::App(App { func, arg }),
 
     #[precedence(level="0")]
-    <SimpleTerm>,
-};
+    SimpleTerm,
+}
 
 SimpleTerm: RawTerm<'input> = {
     // TODO: capture the inner info instead
