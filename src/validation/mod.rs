@@ -2,27 +2,56 @@ use crate::common::WithInfo;
 use crate::reprs::ast;
 use crate::reprs::untyped_ir as ir;
 
-type ValidationError = String;
+use self::context::Context;
 
-struct Context<'i> {
-    var_stack: Vec<&'i str>,
+mod context {
+    /// Cheaply cloneable (hopefully) append-only stack
+    type Stack<T> = Vec<T>;
+
+    #[derive(Clone)]
+    pub(super) struct Context<'i> {
+        var_stack: Stack<&'i str>,
+    }
+
+    impl<'i> Context<'i> {
+        pub(super) fn new() -> Self {
+            Self {
+                var_stack: Vec::new(),
+            }
+        }
+
+        pub(super) fn push_var(&self, var: &'i str) -> Self {
+            let mut new = self.clone();
+            new.var_stack.push(var);
+            new
+        }
+
+        pub(super) fn find_var(&self, name: &'i str) -> Option<usize> {
+            self.var_stack
+                .iter()
+                .cloned::<&_>()
+                .rev()
+                .position(|var| var == name)
+        }
+    }
 }
+
+type ValidationError = String;
 
 trait Validate<'i> {
     type Validated;
-    fn validate(&self, ctx: &mut Context<'i>) -> Result<Self::Validated, ValidationError>;
+    fn validate(&self, ctx: &Context<'i>) -> Result<Self::Validated, ValidationError>;
 }
 
 pub fn validate<'i>(ast: &ast::Term<'i>) -> Result<ir::Term<'i>, ValidationError> {
-    ast.validate(&mut Context {
-        var_stack: Vec::new(),
-    })
+    let ctx = Context::new();
+    ast.validate(&ctx)
 }
 
 impl<'i, T: Validate<'i>> Validate<'i> for Box<T> {
     type Validated = Box<T::Validated>;
 
-    fn validate(&self, ctx: &mut Context<'i>) -> Result<Self::Validated, ValidationError> {
+    fn validate(&self, ctx: &Context<'i>) -> Result<Self::Validated, ValidationError> {
         T::validate(self, ctx).map(Box::new)
     }
 }
@@ -30,7 +59,7 @@ impl<'i, T: Validate<'i>> Validate<'i> for Box<T> {
 impl<'i> Validate<'i> for ast::Term<'i> {
     type Validated = ir::Term<'i>;
 
-    fn validate(&self, ctx: &mut Context<'i>) -> Result<Self::Validated, ValidationError> {
+    fn validate(&self, ctx: &Context<'i>) -> Result<Self::Validated, ValidationError> {
         let WithInfo(info, term) = self;
 
         let term = match term {
@@ -40,24 +69,14 @@ impl<'i> Validate<'i> for ast::Term<'i> {
                 body,
             }) => ir::RawTerm::Abs(ir::Abs {
                 arg_type: arg_type.validate(ctx)?,
-                body: {
-                    ctx.var_stack.push(arg.name);
-                    let body = body.validate(ctx)?;
-                    ctx.var_stack.pop();
-                    body
-                },
+                body: body.validate(&ctx.push_var(arg.name))?,
             }),
             ast::RawTerm::App(ast::App { func, arg }) => ir::RawTerm::App(ir::App {
                 func: func.validate(ctx)?,
                 arg: arg.validate(ctx)?,
             }),
             ast::RawTerm::Var(ast::Var { ident }) => {
-                let Some(index) = ctx
-                    .var_stack
-                    .iter()
-                    .rev()
-                    .position(|arg| arg == &ident.name)
-                else {
+                let Some(index) = ctx.find_var(ident.name) else {
                     return Err(format!("variable '{}' not found", ident.name));
                 };
                 ir::RawTerm::Var(ir::Var {
@@ -75,7 +94,7 @@ impl<'i> Validate<'i> for ast::Term<'i> {
 impl<'i> Validate<'_> for ast::Type<'i> {
     type Validated = ir::Type<'i>;
 
-    fn validate(&self, ctx: &mut Context) -> Result<Self::Validated, ValidationError> {
+    fn validate(&self, ctx: &Context) -> Result<Self::Validated, ValidationError> {
         let WithInfo(info, ty) = self;
 
         let ty = match ty {
