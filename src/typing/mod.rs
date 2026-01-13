@@ -109,7 +109,7 @@ impl<'i, 'a, T: TypeCheck<'i, 'a>> TypeCheck<'i, 'a> for Box<T> {
     }
 }
 
-impl<'i, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
+impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
     type TypeChecked = tir::Term<'i>;
 
     fn type_check(
@@ -193,7 +193,7 @@ impl<'i, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
     }
 }
 
-impl<'a> uir::Type<'_> {
+impl<'i: 'a, 'a> uir::Type<'i> {
     fn eval(&self, ctx: &Context<'a, '_>) -> Result<InternedType<'a>, TypeCheckError> {
         let WithInfo(_info, ty) = self;
 
@@ -206,6 +206,12 @@ impl<'a> uir::Type<'_> {
             uir::RawType::Tuple(elems) => {
                 Type::Tuple(elems.iter().map(|e| e.eval(ctx)).try_collect()?)
             }
+            uir::RawType::Enum(variants) => Type::Enum(
+                variants
+                    .iter()
+                    .map(|(l, t)| t.eval(ctx).map(|t| (*l, t)))
+                    .try_collect()?,
+            ),
             uir::RawType::Bool => Type::Bool,
         };
 

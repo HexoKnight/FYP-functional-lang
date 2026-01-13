@@ -116,6 +116,12 @@ impl<'i> Validate<'_> for ast::Type<'i> {
             ast::RawType::Tuple(elements) => {
                 ir::RawType::Tuple(elements.iter().map(|t| t.validate(ctx)).try_collect()?)
             }
+            ast::RawType::Enum(variants) => ir::RawType::Enum(
+                variants
+                    .iter()
+                    .map(|(i, t)| t.validate(ctx).map(|t| (i.name, t)))
+                    .try_collect()?,
+            ),
             ast::RawType::Bool => ir::RawType::Bool,
         };
         Ok(WithInfo(*info, ty))

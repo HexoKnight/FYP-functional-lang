@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{common::WithInfo, reprs::common::Span};
 
 pub type Term<'i> = WithInfo<Span<'i>, RawTerm<'i>>;
@@ -39,7 +41,7 @@ pub enum Assignee<'i> {
     Ident(Ident<'i>),
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Debug)]
 pub struct Ident<'i> {
     pub name: &'i str,
 }
@@ -51,6 +53,7 @@ pub enum RawType<'i> {
     Arr(Arr<'i>),
 
     Tuple(Box<[Type<'i>]>),
+    Enum(HashMap<Ident<'i>, Type<'i>>),
 
     Bool,
 }

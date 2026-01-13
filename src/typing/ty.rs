@@ -1,3 +1,5 @@
+use crate::hashed_hashmap::HashedHashMap;
+
 type TypeRef<'ctx> = &'ctx Type<'ctx>;
 
 // TODO: manual Hash / *Eq impls for more complex types
@@ -6,6 +8,7 @@ type TypeRef<'ctx> = &'ctx Type<'ctx>;
 pub enum Type<'ctx> {
     Arr(Arr<'ctx>),
 
+    Enum(HashedHashMap<&'ctx str, TypeRef<'ctx>>),
     Tuple(Box<[TypeRef<'ctx>]>),
 
     Bool,

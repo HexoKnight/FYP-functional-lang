@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     common::WithInfo,
     reprs::common::{ArgStructure, Span},
@@ -44,6 +46,7 @@ pub enum RawType<'i> {
     Arr(Arr<'i>),
 
     Tuple(Box<[Type<'i>]>),
+    Enum(HashMap<&'i str, Type<'i>>),
 
     Bool,
 }

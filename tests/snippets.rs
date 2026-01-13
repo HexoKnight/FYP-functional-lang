@@ -124,6 +124,10 @@ fn parsing() {
     parse_success(r"()");
     parse_success(r"(\x:(bool, ()) x) (false, ())");
     parse_success(r"(\(x, y):(bool, bool) x) (false, true)");
+
+    parse_success(r"\x: enum {} x");
+    parse_success(r"\x: enum { single: enum {nested: enum {}} } x");
+    parse_success(r"\x: enum { some: bool, none: () } x");
 }
 
 #[test]

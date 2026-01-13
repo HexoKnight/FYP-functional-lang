@@ -7,6 +7,17 @@ extern {
     type Error = crate::parsing::UserParserError;
 }
 
+CommaSep<T>: Vec<T> = {
+    <mut start:(<T> ",")*> <last:T?> => {
+        if let Some(last) = last {
+            start.push(last);
+        }
+        start
+    },
+}
+
+Box<T>: Box<T> = <T> => Box::new(<>);
+
 match {
     r"\s*" => {},
     r"//[^\n\r]*[\n\r]*" => {},
@@ -15,8 +26,6 @@ match {
 }
 
 Ident: Ident<'input> = <r"[a-zA-Z]+"> => Ident { name: <> };
-
-Box<T>: Box<T> = <T> => Box::new(<>);
 
 WithInfo<T>: WithInfo<Span<'input>, T> = {
     <start:@L> <inner:T> <end:@R> => WithInfo(Span {
@@ -80,6 +89,8 @@ SimpleType: RawType<'input> = {
     "(" <RawType> ")",
 
     Tuple<Type> => RawType::Tuple(<>),
+    "enum" "{" <variants:CommaSep<(<Ident> ":" <Type>)>> "}" =>
+        RawType::Enum(variants.into_iter().collect()),
 
     "bool" => RawType::Bool,
 }
