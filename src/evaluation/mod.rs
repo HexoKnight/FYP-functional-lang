@@ -95,15 +95,15 @@ impl<'i: 'ir, 'ir: 'a, 'a> Evaluate<'i, 'ir, 'a> for tir::Term<'i> {
 
         let value = match term {
             // we cannot evaluate a solitary abstraction any further so we treat it like a closure
-            tir::RawTerm::Abs(tir::Abs {
+            tir::RawTerm::Abs {
                 arg_structure,
                 body,
-            }) => RawValue::Abs(value::Abs {
+            } => RawValue::Abs(value::Abs {
                 closed_ctx: ctx.create_closure(),
                 arg_structure: arg_structure.clone(),
                 body: body.as_ref(),
             }),
-            tir::RawTerm::App(tir::App { func, arg }) => {
+            tir::RawTerm::App { func, arg } => {
                 let RawValue::Abs(value::Abs {
                     closed_ctx,
                     arg_structure,
@@ -123,7 +123,7 @@ impl<'i: 'ir, 'ir: 'a, 'a> Evaluate<'i, 'ir, 'a> for tir::Term<'i> {
                 let res = body.evaluate(&ctx_)?;
                 res.1
             }
-            tir::RawTerm::Var(tir::Var { index }) => ctx
+            tir::RawTerm::Var { index } => ctx
                 .get_var(*index)
                 .ok_or_else(|| format!("illegal failure: variable index not found: {index}\n"))?
                 .1

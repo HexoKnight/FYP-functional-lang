@@ -119,39 +119,39 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
         let WithInfo(info, term) = self;
 
         let (term, ty) = match term {
-            uir::RawTerm::Abs(uir::Abs {
+            uir::RawTerm::Abs {
                 arg_structure,
                 arg_type,
                 body,
-            }) => {
+            } => {
                 let arg_type = arg_type.eval(ctx)?;
                 let destructured_arg_types = arg_type.destructure(arg_structure)?;
 
                 let ctx_ = ctx.push_var_tys(destructured_arg_types);
                 let (body, body_type) = body.type_check(&ctx_)?;
 
-                let ty = Type::Arr(ty::Arr {
+                let ty = Type::Arr {
                     arg: arg_type,
                     result: body_type,
-                });
+                };
 
                 (
-                    tir::RawTerm::Abs(tir::Abs {
+                    tir::RawTerm::Abs {
                         arg_structure: arg_structure.clone(),
                         body,
-                    }),
+                    },
                     ctx.intern(ty),
                 )
             }
-            uir::RawTerm::App(uir::App { func, arg }) => {
+            uir::RawTerm::App { func, arg } => {
                 let (func, func_type) = func.type_check(ctx)?;
                 let (arg, arg_type) = arg.type_check(ctx)?;
                 let ty = match (func_type, arg_type) {
                     (
-                        Type::Arr(ty::Arr {
+                        Type::Arr {
                             arg: func_arg_type,
                             result: func_result_type,
-                        }),
+                        },
                         arg_type,
                     ) => {
                         if eq_ty(func_arg_type, arg_type) {
@@ -170,10 +170,10 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                         return Err(format!("cannot apply an argument to type: {func_type:?}"));
                     }
                 };
-                (tir::RawTerm::App(tir::App { func, arg }), ty)
+                (tir::RawTerm::App { func, arg }, ty)
             }
-            uir::RawTerm::Var(uir::Var { name: _, index }) => (
-                tir::RawTerm::Var(tir::Var { index: *index }),
+            uir::RawTerm::Var { name: _, index } => (
+                tir::RawTerm::Var { index: *index },
                 ctx.get_var_ty(*index).ok_or_else(|| {
                     format!("illegal failure: variable index not found: {index}\n")
                 })?,
@@ -198,10 +198,10 @@ impl<'i: 'a, 'a> uir::Type<'i> {
         let WithInfo(_info, ty) = self;
 
         let ty = match ty {
-            uir::RawType::Arr(uir::Arr { arg, result }) => {
+            uir::RawType::Arr { arg, result } => {
                 let arg = arg.as_ref().eval(ctx)?;
                 let result = result.as_ref().eval(ctx)?;
-                Type::Arr(ty::Arr { arg, result })
+                Type::Arr { arg, result }
             }
             uir::RawType::Tuple(elems) => {
                 Type::Tuple(elems.iter().map(|e| e.eval(ctx)).try_collect()?)

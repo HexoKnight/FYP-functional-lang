@@ -38,11 +38,11 @@ pub Term: Term<'input> = WithInfo<RawTerm>;
 
 RawTerm: RawTerm<'input> = {
     #[precedence(level="2")]
-    "\\" <arg:Assignee> ":" <arg_type:Type> <body:Box<WithInfo<RawTerm>>> => RawTerm::Abs(Abs { arg, arg_type, body }),
+    "\\" <arg:Assignee> ":" <arg_type:Type> <body:Box<WithInfo<RawTerm>>> => RawTerm::Abs { arg, arg_type, body },
 
     #[precedence(level="1")]
     #[assoc(side="left")]
-    <func:Box<WithInfo<RawTerm>>> <arg:Box<WithInfo<RawTerm>>> => RawTerm::App(App { func, arg }),
+    <func:Box<WithInfo<RawTerm>>> <arg:Box<WithInfo<RawTerm>>> => RawTerm::App { func, arg },
 
     #[precedence(level="0")]
     SimpleTerm,
@@ -53,7 +53,7 @@ SimpleTerm: RawTerm<'input> = {
     "(" <RawTerm> ")",
 
     <ident:Ident> =>? {
-        Ok(RawTerm::Var(Var { ident }))
+        Ok(RawTerm::Var { ident })
     },
 
     Tuple<Term> => RawTerm::Tuple(<>),
@@ -79,7 +79,7 @@ Type: Type<'input> = WithInfo<RawType>;
 RawType: RawType<'input> = {
     #[precedence(level="1")]
     #[assoc(side="right")]
-    <arg:Box<WithInfo<RawType>>> "->" <result:Box<WithInfo<RawType>>> => RawType::Arr(Arr { arg, result }),
+    <arg:Box<WithInfo<RawType>>> "->" <result:Box<WithInfo<RawType>>> => RawType::Arr { arg, result },
 
     #[precedence(level="0")]
     SimpleType,

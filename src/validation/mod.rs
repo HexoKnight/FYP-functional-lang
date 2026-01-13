@@ -67,30 +67,30 @@ impl<'i> Validate<'i> for ast::Term<'i> {
         let WithInfo(info, term) = self;
 
         let term = match term {
-            ast::RawTerm::Abs(ast::Abs {
+            ast::RawTerm::Abs {
                 arg,
                 arg_type,
                 body,
-            }) => {
+            } => {
                 let (arg_structure, arg_vars) = extract_idents(arg);
-                ir::RawTerm::Abs(ir::Abs {
+                ir::RawTerm::Abs {
                     arg_structure,
                     arg_type: arg_type.validate(ctx)?,
                     body: body.validate(&ctx.push_vars(arg_vars.map(|i| i.name)))?,
-                })
+                }
             }
-            ast::RawTerm::App(ast::App { func, arg }) => ir::RawTerm::App(ir::App {
+            ast::RawTerm::App { func, arg } => ir::RawTerm::App {
                 func: func.validate(ctx)?,
                 arg: arg.validate(ctx)?,
-            }),
-            ast::RawTerm::Var(ast::Var { ident }) => {
+            },
+            ast::RawTerm::Var { ident } => {
                 let Some(index) = ctx.find_var(ident.name) else {
                     return Err(format!("variable '{}' not found", ident.name));
                 };
-                ir::RawTerm::Var(ir::Var {
+                ir::RawTerm::Var {
                     name: ident.name,
                     index,
-                })
+                }
             }
             ast::RawTerm::Tuple(elements) => {
                 ir::RawTerm::Tuple(elements.iter().map(|t| t.validate(ctx)).try_collect()?)
@@ -109,10 +109,10 @@ impl<'i> Validate<'_> for ast::Type<'i> {
         let WithInfo(info, ty) = self;
 
         let ty = match ty {
-            ast::RawType::Arr(ast::Arr { arg, result }) => ir::RawType::Arr(ir::Arr {
+            ast::RawType::Arr { arg, result } => ir::RawType::Arr {
                 arg: arg.validate(ctx)?,
                 result: result.validate(ctx)?,
-            }),
+            },
             ast::RawType::Tuple(elements) => {
                 ir::RawType::Tuple(elements.iter().map(|t| t.validate(ctx)).try_collect()?)
             }
