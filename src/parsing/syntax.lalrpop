@@ -38,27 +38,28 @@ pub Term: Term<'input> = WithInfo<RawTerm>;
 
 RawTerm: RawTerm<'input> = {
     Abs,
-    App<AbsOrSimple>,
+    App<Abs>,
+    Dot<Abs>,
     SimpleTerm,
 }
 
 Abs: RawTerm<'input> = {
-    "\\" <arg:Assignee> ":" <arg_type:Type> <body:Box<WithInfo<RawTerm>>> => RawTerm::Abs { arg, arg_type, body },
+    "\\" <arg:Assignee> ":" <arg_type:Type> <body:Box<Term>> => RawTerm::Abs { arg, arg_type, body },
 }
 
-App<Arg>: RawTerm<'input> = {
-    <func:Box<WithInfo<SimpleApp>>> <arg:Box<WithInfo<Arg>>> => RawTerm::App { func, arg },
+App<Abs>: RawTerm<'input> = {
+    <func:Box<WithInfo<AppLeft>>> <arg:Box<WithInfo<AppRight<Abs>>>> => RawTerm::App { func, arg },
 }
 
-AbsOrSimple: RawTerm<'input> = {
-    Abs,
-    SimpleTerm,
+Dot<Abs>: RawTerm<'input> = {
+    <arg:Box<WithInfo<DotLeft>>> "." <func:Box<WithInfo<DotRight<Abs>>>> => RawTerm::App { func, arg },
 }
 
-SimpleApp: RawTerm<'input> = {
-    App<SimpleTerm>,
-    SimpleTerm,
-}
+NoAbs: RawTerm<'input> = {}
+AppLeft       = {      App<NoAbs>, Dot<NoAbs>, SimpleTerm }
+AppRight<Abs> = { Abs,             Dot<Abs>,   SimpleTerm }
+DotLeft       = {                  Dot<NoAbs>, SimpleTerm }
+DotRight<Abs> = { Abs,                         SimpleTerm }
 
 SimpleTerm: RawTerm<'input> = {
     // TODO: capture the inner info instead

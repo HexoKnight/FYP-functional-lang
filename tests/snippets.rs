@@ -81,7 +81,7 @@ mod utils {
     }
 
     pub fn def(signature: &str, body: &str) -> impl Fn(&str) -> String {
-        move |s: &str| [r"(\", signature, "(", s, "))(", body, ")"].join("\n")
+        move |s: &str| ["(", body, ").\n  \\ ", signature, "\n", s].join("")
     }
 
     #[track_caller]
@@ -140,7 +140,25 @@ fn basic_app() {
     evaluate_success(r"(\id:bool->bool id) (\x:bool x)");
 
     evaluate_eq(r"(\x:bool \y:bool (\z:bool z) x) false true", r"false");
+}
 
+#[test]
+fn dot_app() {
+    parse_eq(r"x.y z", r"y x z");
+    parse_eq(r"x y.z", r"x (z y)");
+
+    parse_eq(r"x.y .\x:() z.y a", r"(\x:() y z a)(y x)");
+
+    parse_eq(r"x.\x:() z a.b", r"(\x:() z (b a)) x");
+
+    evaluate_eq(r"().(\x:() false)", r"false");
+    evaluate_eq(r"true.(\x:bool false)", r"true.\x:bool false");
+
+    evaluate_eq(r"().(\x:() \y:() false) ()", r"false");
+}
+
+#[test]
+fn complex_app() {
     let id = def(r"id:bool->bool", r"\x:bool x");
     let idf = def(r"idf:(bool->bool)->bool->bool", r"\x:bool->bool x");
     let c = def(r"c:bool->bool->bool", r"\x:bool \y:bool x");

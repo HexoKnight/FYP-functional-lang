@@ -1,21 +1,22 @@
-(\
-  (
-    uncurry,
-    K,
-  ): (
-    (bool -> () -> bool) -> ((bool, ()) -> bool),
-    bool -> () -> bool,
-  )
+// There is no let keyword.
+// Instead immediately invoked functions can be used.
+// Functions are usually invoked with 'arg . func', which has a similar appearance
+// and precedence to method calling
+//
+// However both standard application 'func arg' and this dot operator
+// allow functions to be unparenthesised in their RHSs.
+//
+// so 'let var: ty = val; ...'
+// becomes '(val) . \var: ty ...'
 
-  (uncurry K) (K true (), ())
-)
+(\f: bool -> () -> bool
+  \(a, b): (bool, ())
+    f a b
+).
+  \uncurry: (bool -> () -> bool) -> ((bool, ()) -> bool)
 
-(
-  // uncurry
-  (\f: bool -> () -> bool
-    \(a, b): (bool, ())
-      f a b
-  ),
-  // K
-  (\x:bool \():() x),
-)
+(\x:bool \():() x).
+  \K: bool -> () -> bool
+
+K.uncurry (K true (), ())
+
