@@ -95,6 +95,12 @@ impl<'i> Validate<'i> for ast::Term<'i> {
             ast::RawTerm::Enum(enum_type, variant) => {
                 ir::RawTerm::Enum(enum_type.validate(ctx)?, EnumLabel(variant.name))
             }
+            ast::RawTerm::Match(enum_type, arms) => ir::RawTerm::Match(
+                enum_type.validate(ctx)?,
+                arms.iter()
+                    .map(|(i, t)| t.validate(ctx).map(|t| (EnumLabel(i.name), t)))
+                    .try_collect()?,
+            ),
             ast::RawTerm::Tuple(elements) => {
                 ir::RawTerm::Tuple(elements.iter().map(|t| t.validate(ctx)).try_collect()?)
             }

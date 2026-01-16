@@ -21,6 +21,7 @@ pub enum RawTerm<'i> {
     },
 
     Enum(EnumLabel<'i>),
+    Match(Box<[(EnumLabel<'i>, Term<'i>)]>),
 
     Tuple(Box<[Term<'i>]>),
 

@@ -27,6 +27,7 @@ pub enum Func<'i, Closure> {
     Abs(ArgStructure, Closure),
 
     EnumCons(EnumLabel<'i>),
+    Match(HashMap<EnumLabel<'i>, Closure>),
 }
 
 #[derive(Clone)]
@@ -65,6 +66,11 @@ impl<'i, Closure> Func<'i, Closure> {
         match self {
             Func::Abs(a, closure) => Func::Abs(a, map(closure)),
             Func::EnumCons(l) => Func::EnumCons(l),
+            Func::Match(arms) => Func::Match(
+                arms.into_iter()
+                    .map(|(l, closure)| (l, map(closure)))
+                    .collect(),
+            ),
         }
     }
 }

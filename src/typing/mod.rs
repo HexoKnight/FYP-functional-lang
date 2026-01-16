@@ -154,7 +154,7 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                         },
                         arg_type,
                     ) => {
-                        if eq_ty(func_arg_type, arg_type) {
+                        if ty_is_subtype(func_arg_type, arg_type) {
                             *func_result_type
                         } else {
                             // TODO
@@ -201,6 +201,55 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     }),
                 )
             }
+            uir::RawTerm::Match(enum_type, arms) => {
+                let enum_type = enum_type.eval(ctx)?;
+                let Type::Enum(variants) = enum_type else {
+                    // TODO
+                    return Err(format!("cannot match on a non-enum type: {enum_type:?}"));
+                };
+
+                let (arms, result_types): (Vec<_>, Vec<_>) = arms
+                    .iter()
+                    .map(|(label, func)| -> Result<_, TypeCheckError> {
+                        let (func, func_type) = func.type_check(ctx)?;
+                        // check dead branches
+                        let Some(variant_type) = variants.0.get(label.0) else {
+                            // TODO
+                            return Err(format!(
+                                "enum type does not contain label '{label:?}': {enum_type:?}"
+                            ));
+                        };
+                        let Type::Arr {
+                            arg: func_arg_type,
+                            result: func_result_type,
+                        } = func_type
+                        else {
+                            // TODO
+                            return Err(format!(
+                                "match arm must be a function type: {func_type:?}"
+                            ));
+                        };
+                        if !ty_is_subtype(func_arg_type, variant_type) {
+                            // TODO
+                            return Err(format!(
+                                "incorrect match arm type:\n\
+                                expected type: {variant_type:?}\n\
+                                got type: {func_arg_type:?}",
+                            ));
+                        }
+                        Ok(Some(((*label, func), *func_result_type)))
+                    })
+                    .filter_map_ok(|o| o)
+                    .try_collect()?;
+
+                (
+                    tir::RawTerm::Match(arms.into_boxed_slice()),
+                    ctx.intern(Type::Arr {
+                        arg: enum_type,
+                        result: Type::join(result_types, ctx)?,
+                    }),
+                )
+            }
             uir::RawTerm::Tuple(elems) => {
                 let (elems, types): (Vec<_>, Vec<_>) =
                     elems.iter().map(|e| e.type_check(ctx)).try_collect()?;
@@ -242,8 +291,212 @@ impl<'i: 'a, 'a> uir::Type<'i> {
     }
 }
 
-fn eq_ty<'a>(ty1: InternedType<'a>, ty2: InternedType<'a>) -> bool {
+fn ty_is_subtype<'a>(supertype: InternedType<'a>, subtype: InternedType<'a>) -> bool {
+    // TODO: subtyping
+    ty_eq(supertype, subtype)
+}
+
+fn ty_eq<'a>(ty1: InternedType<'a>, ty2: InternedType<'a>) -> bool {
     std::ptr::eq(ty1, ty2)
+}
+
+impl<'a> Type<'a> {
+    // TODO: when impl the top and bottom types, remove Result
+    /// Join multiple types to produce the 'minimal' supertype.
+    /// Intuitively, it's the union of the input types.
+    ///
+    /// Specifically, should be the type that is:
+    /// - a supertype of every input type
+    /// - a subtype of all other supertypes of every input type.
+    ///
+    /// # Errors
+    /// - joining 0 types (should be bottom type)
+    /// - joining incompatible types (should be top type)
+    fn join(
+        types: impl IntoIterator<Item = InternedType<'a>>,
+        ctx: &Context<'a, '_>,
+    ) -> Result<InternedType<'a>, TypeCheckError> {
+        fn join2<'a>(
+            ty1: InternedType<'a>,
+            ty2: InternedType<'a>,
+            ctx: &Context<'a, '_>,
+        ) -> Result<InternedType<'a>, TypeCheckError> {
+            if ty_eq(ty1, ty2) {
+                return Ok(ty1);
+            }
+            let ty = match (ty1, ty2) {
+                (
+                    Type::Arr {
+                        arg: arg1,
+                        result: res1,
+                    },
+                    Type::Arr {
+                        arg: arg2,
+                        result: res2,
+                    },
+                ) => Type::Arr {
+                    arg: if ty_eq(arg1, arg2) {
+                        arg1
+                    } else {
+                        // func arg is contravariant so meet instead
+                        Type::meet([*arg1, *arg2], ctx)?
+                    },
+                    result: join2(res1, res2, ctx)?,
+                },
+                (Type::Enum(variants1), Type::Enum(variants2)) => Type::Enum(
+                    variants1
+                        .0
+                        .iter()
+                        .map(|(l, ty1)| {
+                            variants2
+                                .0
+                                .get(l)
+                                // recursively join intersection
+                                .map(|ty2| join2(ty1, ty2, ctx))
+                                // passthru labels only in variants1
+                                .unwrap_or(Ok(ty1))
+                                .map(|ty| (*l, ty))
+                        })
+                        .chain(
+                            variants2
+                                .0
+                                .iter()
+                                // passthru labels only in variants2
+                                .filter(|(l, _)| !variants1.0.contains_key(*l))
+                                .map(|(l, ty2)| Ok((*l, *ty2))),
+                        )
+                        .try_collect()?,
+                ),
+                (Type::Tuple(elems1), Type::Tuple(elems2)) => {
+                    let len1 = elems1.len();
+                    let len2 = elems2.len();
+                    if len1 != len2 {
+                        // TODO: top type
+                        return Err(format!(
+                            "cannot meet tuples with different lengths:\n\
+                            tuple 1: {len1} elements: {ty1:?}\n\
+                            tuple 2: {len2} elements: {ty2:?}"
+                        ));
+                    }
+                    Type::Tuple(
+                        zip_eq(elems1, elems2)
+                            .map(|(ty1, ty2)| join2(ty1, ty2, ctx))
+                            .try_collect()?,
+                    )
+                }
+                (Type::Bool, Type::Bool) => Type::Bool,
+                _ => {
+                    // TODO: top type
+                    return Err(format!(
+                        "cannot join incompatible types:\n\
+                        type 1: {ty1:?}\n\
+                        type 2: {ty2:?}\n"
+                    ));
+                }
+            };
+
+            Ok(ctx.intern(ty))
+        }
+
+        let mut iter = types.into_iter();
+        let Some(first) = iter.next() else {
+            // TODO: bottom type
+            return Err("cannot join 0 types".to_string());
+        };
+        iter.try_fold(first, |ty1, ty2| join2(ty1, ty2, ctx))
+    }
+
+    // TODO: when impl the top and bottom types, remove Result
+    /// Meet multiple types to produce the 'maximal' subtype.
+    /// Intuitively, it's the intersection of the input types.
+    ///
+    /// Specifically, should be the type that is:
+    /// - a subtype of every input type
+    /// - a supertype of all other subtypes of every input type.
+    ///
+    /// # Errors
+    /// - meeting 0 types (should be top type)
+    /// - meeting incompatible types (should be bottom type)
+    fn meet(
+        types: impl IntoIterator<Item = InternedType<'a>>,
+        ctx: &Context<'a, '_>,
+    ) -> Result<InternedType<'a>, TypeCheckError> {
+        fn meet2<'a>(
+            ty1: InternedType<'a>,
+            ty2: InternedType<'a>,
+            ctx: &Context<'a, '_>,
+        ) -> Result<InternedType<'a>, TypeCheckError> {
+            let ty = match (ty1, ty2) {
+                (
+                    Type::Arr {
+                        arg: arg1,
+                        result: res1,
+                    },
+                    Type::Arr {
+                        arg: arg2,
+                        result: res2,
+                    },
+                ) => Type::Arr {
+                    arg: if ty_eq(arg1, arg2) {
+                        arg1
+                    } else {
+                        // contravariant * contravariant = covariant again
+                        Type::join([*arg1, *arg2], ctx)?
+                    },
+                    result: meet2(res1, res2, ctx)?,
+                },
+                (Type::Enum(variants1), Type::Enum(variants2)) => Type::Enum(
+                    // meeting enums
+                    variants1
+                        .0
+                        .iter()
+                        .filter_map(|(l, ty1)| {
+                            variants2
+                                .0
+                                .get(l)
+                                // recursively meet only intersection
+                                .map(|ty2| meet2(ty1, ty2, ctx).map(|ty| (*l, ty)))
+                        })
+                        .try_collect()?,
+                ),
+                (Type::Tuple(elems1), Type::Tuple(elems2)) => {
+                    let len1 = elems1.len();
+                    let len2 = elems2.len();
+                    if len1 != len2 {
+                        // TODO: bottom type
+                        return Err(format!(
+                            "cannot meet tuples with different lengths:\n\
+                            tuple 1: {len1} elements: {ty1:?}\n\
+                            tuple 2: {len2} elements: {ty2:?}"
+                        ));
+                    }
+                    Type::Tuple(
+                        zip_eq(elems1, elems2)
+                            .map(|(ty1, ty2)| meet2(ty1, ty2, ctx))
+                            .try_collect()?,
+                    )
+                }
+                (Type::Bool, Type::Bool) => Type::Bool,
+                _ => {
+                    // TODO: bottom type
+                    return Err(format!(
+                        "cannot meet incompatible types:\n\
+                        type 1: {ty1:?}\n\
+                        type 2: {ty2:?}\n"
+                    ));
+                }
+            };
+
+            Ok(ctx.intern(ty))
+        }
+
+        let mut iter = types.into_iter();
+        let Some(first) = iter.next() else {
+            // TODO: top type
+            return Err("cannot meet 0 types".to_string());
+        };
+        iter.try_fold(first, |ty1, ty2| meet2(ty1, ty2, ctx))
+    }
 }
 
 impl Type<'_> {

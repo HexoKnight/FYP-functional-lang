@@ -123,6 +123,19 @@ impl<'i: 'ir, 'ir: 'a, 'a> Evaluate<'i, 'ir, 'a> for tir::Term<'i> {
                 // TODO: maybe try eliminate this clone??
                 .clone(),
             tir::RawTerm::Enum(label) => RawValue::Func(Func::EnumCons(*label)),
+            tir::RawTerm::Match(arms) => RawValue::Func(Func::Match(
+                arms.iter()
+                    .map(|(l, body)| {
+                        (
+                            *l,
+                            value::Closure {
+                                closed_ctx: ctx.create_closure(),
+                                body,
+                            },
+                        )
+                    })
+                    .collect(),
+            )),
             tir::RawTerm::Tuple(elems) => {
                 RawValue::Tuple(elems.iter().map(|e| e.evaluate(ctx)).try_collect()?)
             }
@@ -147,6 +160,30 @@ impl<'i: 'ir, 'ir: 'a, 'a> Func<'i, Closure<'i, 'ir, 'a>> {
                 body.evaluate(&ctx_)?.1
             }
             Func::EnumCons(label) => RawValue::EnumVariant(label, Box::new(arg)),
+            Func::Match(mut arms) => {
+                let WithInfo(_info, arg) = arg;
+                let RawValue::EnumVariant(label, value) = arg else {
+                    return Err(
+                        "illegal failure: type checking failed: match on non-enum".to_string()
+                    );
+                };
+                let Some(Closure { closed_ctx, body }) = arms.remove(&label) else {
+                    return Err(
+                        "illegal failure: type checking failed: match missing enum label"
+                            .to_string(),
+                    );
+                };
+
+                let ctx_ = ctx.apply_closure(closed_ctx);
+                let func = body.evaluate(&ctx_)?.1;
+                let RawValue::Func(func) = func else {
+                    return Err(
+                        "illegal failure: type checking failed: match arm is non-function"
+                            .to_string(),
+                    );
+                };
+                func.evaluate_arg(*value, ctx)?
+            }
         };
         Ok(value)
     }

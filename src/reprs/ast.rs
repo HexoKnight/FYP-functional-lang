@@ -22,6 +22,7 @@ pub enum RawTerm<'i> {
     },
 
     Enum(Type<'i>, Ident<'i>),
+    Match(Type<'i>, Box<[(Ident<'i>, Term<'i>)]>),
 
     Tuple(Box<[Term<'i>]>),
 

@@ -57,6 +57,7 @@ SimpleTerm: RawTerm<'input> = {
     },
 
     "enum" <Type> <Ident> => RawTerm::Enum(<>),
+    "match" <ty:Type> "{" <arms:CommaSep<(Ident Term)>> "}" => RawTerm::Match(ty, arms.into_boxed_slice()),
 
     Tuple<Term> => RawTerm::Tuple(<>),
 

@@ -187,4 +187,56 @@ fn enums() {
     evaluate_success(
         r"(\x: bool -> enum { some: bool, none: () } x) (enum enum {some:bool,none:()} some)",
     );
+
+    type_check_failure(r"match enum {} {}");
+    type_check_failure(
+        r"match enum {some:bool,none:()} {
+            hello(\x:bool ()),
+            none(\():() ()),
+        }",
+    );
+    type_check_failure(
+        r"match enum {some:bool,none:()} {
+            some(\x:bool x),
+            none(\():() ()),
+        }",
+    );
+    evaluate_success(
+        r"match enum {
+            some: bool,
+            none: (),
+        } {
+            some \x:bool x,
+            none \():() false,
+        }",
+    );
+    evaluate_eq(
+        r"
+        (\x:
+            enum {
+                onlya: enum { a:() },
+                none: enum { },
+                onlyb: enum { b:bool },
+            }
+            -> enum { a:(), b:bool }
+        x)
+        match enum {
+            onlya: enum { a:() },
+            none: enum { },
+            onlyb: enum { b:bool },
+        } {
+            onlya \x: enum { a:() } x,
+            none  \x: enum { } x,
+            onlyb \x: enum { b:bool } x,
+        }
+        (enum
+            enum {
+                onlya: enum { a:() },
+                none: enum { },
+                onlyb: enum { b:bool },
+            }
+            onlyb (enum enum { b:bool } b false)
+        )",
+        r"enum enum { b:bool } b false",
+    );
 }
