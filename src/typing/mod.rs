@@ -95,7 +95,8 @@ pub fn type_check<'i>(
     let ctx = Context::with_inner(&inner);
 
     let (term, ty) = untyped_ir.type_check(&ctx)?;
-    Ok((term, format!("{ty:?}")))
+    // TODO: remove unwrap
+    Ok((term, ty.display()))
 }
 
 impl<'i, 'a, T: TypeCheck<'i, 'a>> TypeCheck<'i, 'a> for Box<T> {
@@ -160,14 +161,19 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                             // TODO
                             return Err(format!(
                                 "incorrect arg type:\n\
-                                expected arg type: {func_arg_type:?}\n\
-                                got arg type: {arg_type:?}",
+                                expected arg type: {func_arg_type}\n\
+                                got arg type:      {arg_type}",
+                                func_arg_type = func_arg_type.display(),
+                                arg_type = arg_type.display(),
                             ));
                         }
                     }
                     (func_type, _arg_type) => {
                         // TODO
-                        return Err(format!("cannot apply an argument to type: {func_type:?}"));
+                        return Err(format!(
+                            "cannot apply an argument to type: {func_type}",
+                            func_type = func_type.display()
+                        ));
                     }
                 };
                 (tir::RawTerm::App { func, arg }, ty)
@@ -184,13 +190,15 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                 let Type::Enum(variants) = enum_type else {
                     // TODO
                     return Err(format!(
-                        "cannot construct an enum with a non-enum type: {enum_type:?}"
+                        "cannot construct an enum with a non-enum type: {enum_type}",
+                        enum_type = enum_type.display()
                     ));
                 };
                 let Some(variant_type) = variants.0.get(label.0) else {
                     // TODO
                     return Err(format!(
-                        "enum type does not contain label '{label:?}': {enum_type:?}"
+                        "enum type does not contain label '{label}': {enum_type}",
+                        enum_type = enum_type.display()
                     ));
                 };
                 (
@@ -205,7 +213,10 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                 let enum_type = enum_type.eval(ctx)?;
                 let Type::Enum(variants) = enum_type else {
                     // TODO
-                    return Err(format!("cannot match on a non-enum type: {enum_type:?}"));
+                    return Err(format!(
+                        "cannot match on a non-enum type: {enum_type}",
+                        enum_type = enum_type.display()
+                    ));
                 };
 
                 let (arms, result_types): (Vec<_>, Vec<_>) = arms
@@ -216,7 +227,8 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                         let Some(variant_type) = variants.0.get(label.0) else {
                             // TODO
                             return Err(format!(
-                                "enum type does not contain label '{label:?}': {enum_type:?}"
+                                "enum type does not contain label '{label}': {enum_type}",
+                                enum_type = enum_type.display()
                             ));
                         };
                         let Type::Arr {
@@ -226,15 +238,18 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                         else {
                             // TODO
                             return Err(format!(
-                                "match arm must be a function type: {func_type:?}"
+                                "match arm must be a function type: {func_type}",
+                                func_type = func_type.display()
                             ));
                         };
                         if !ty_is_subtype(func_arg_type, variant_type) {
                             // TODO
                             return Err(format!(
                                 "incorrect match arm type:\n\
-                                expected type: {variant_type:?}\n\
-                                got type: {func_arg_type:?}",
+                                expected type: {variant_type}\n\
+                                got type:      {func_arg_type}",
+                                variant_type = variant_type.display(),
+                                func_arg_type = func_arg_type.display(),
                             ));
                         }
                         Ok(Some(((*label, func), *func_result_type)))
@@ -374,8 +389,10 @@ impl<'a> Type<'a> {
                         // TODO: top type
                         return Err(format!(
                             "cannot meet tuples with different lengths:\n\
-                            tuple 1: {len1} elements: {ty1:?}\n\
-                            tuple 2: {len2} elements: {ty2:?}"
+                            tuple 1: {len1} elements: {ty1}\n\
+                            tuple 2: {len2} elements: {ty2}",
+                            ty1 = ty1.display(),
+                            ty2 = ty2.display()
                         ));
                     }
                     Type::Tuple(
@@ -389,8 +406,10 @@ impl<'a> Type<'a> {
                     // TODO: top type
                     return Err(format!(
                         "cannot join incompatible types:\n\
-                        type 1: {ty1:?}\n\
-                        type 2: {ty2:?}\n"
+                        type 1: {ty1}\n\
+                        type 2: {ty2}\n",
+                        ty1 = ty1.display(),
+                        ty2 = ty2.display()
                     ));
                 }
             };
@@ -466,8 +485,10 @@ impl<'a> Type<'a> {
                         // TODO: bottom type
                         return Err(format!(
                             "cannot meet tuples with different lengths:\n\
-                            tuple 1: {len1} elements: {ty1:?}\n\
-                            tuple 2: {len2} elements: {ty2:?}"
+                            tuple 1: {len1} elements: {ty1}\n\
+                            tuple 2: {len2} elements: {ty2}",
+                            ty1 = ty1.display(),
+                            ty2 = ty2.display()
                         ));
                     }
                     Type::Tuple(
@@ -481,8 +502,10 @@ impl<'a> Type<'a> {
                     // TODO: bottom type
                     return Err(format!(
                         "cannot meet incompatible types:\n\
-                        type 1: {ty1:?}\n\
-                        type 2: {ty2:?}\n"
+                        type 1: {ty1}\n\
+                        type 2: {ty2}\n",
+                        ty1 = ty1.display(),
+                        ty2 = ty2.display()
                     ));
                 }
             };
@@ -524,7 +547,10 @@ impl Type<'_> {
 
                 (ArgStructure::Tuple(_), ty) => {
                     // TODO
-                    return Err(format!("cannot tuple-destructure value of type {ty:?}"));
+                    return Err(format!(
+                        "cannot tuple-destructure value of type {ty}",
+                        ty = ty.display()
+                    ));
                 }
                 (ArgStructure::Var, ty) => output(ty),
             }

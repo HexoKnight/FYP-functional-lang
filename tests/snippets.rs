@@ -64,10 +64,10 @@ mod utils {
     }
 
     #[track_caller]
-    pub fn evaluate_success(src: &str) -> Value<'_> {
-        let (typed_ir, _) = type_check_success(src);
+    pub fn evaluate_success(src: &str) -> (Value<'_>, String) {
+        let (typed_ir, ty) = type_check_success(src);
         match evaluate(&typed_ir) {
-            Ok(o) => o,
+            Ok(o) => (o, ty),
             Err(e) => panic!("evaluate failure:\n'{}'\n{}", src, e),
         }
     }
@@ -91,7 +91,12 @@ mod utils {
 
     #[track_caller]
     pub fn evaluate_eq(src1: &str, src2: &str) {
-        assert_eq!(evaluate_success(src1), evaluate_success(src2))
+        assert_eq!(evaluate_success(src1).0, evaluate_success(src2).0)
+    }
+
+    #[track_caller]
+    pub fn evaluate_check_type(src1: &str, ty: &str) {
+        assert_eq!(evaluate_success(src1).1, ty)
     }
 }
 
@@ -107,9 +112,9 @@ fn comments() {
 
 #[test]
 fn basic_abs() {
-    evaluate_success(r"(\x:bool x)");
-    evaluate_success(r"\x:bool x");
-    evaluate_success(r"\x:bool \ y : bool x");
+    evaluate_check_type(r"(\x:bool x)", "bool -> bool");
+    evaluate_check_type(r" \x:bool x ", "bool -> bool");
+    evaluate_check_type(r"\x:bool \ y : bool x", "bool -> bool -> bool");
 
     parse_failure(r"\x x");
     parse_failure(r"\x:bool");
@@ -121,9 +126,9 @@ fn basic_abs() {
 fn basic_app() {
     type_check_failure(r"\x:bool x x");
 
-    evaluate_success(r"(\x:bool x) true");
-    evaluate_success(r"(\x: bool -> bool x) (\y: bool false)");
-    evaluate_success(r"(\x: bool -> bool x)  \y: bool false");
+    evaluate_check_type(r"(\x:bool x) true", "bool");
+    evaluate_check_type(r"(\x: bool -> bool x) (\y: bool false)", "bool -> bool");
+    evaluate_check_type(r"(\x: bool -> bool x)  \y: bool false ", "bool -> bool");
 
     parse_eq(
         r"(\x:()->()->bool x()()) (\x:() (\x:() false))",
@@ -135,9 +140,9 @@ fn basic_app() {
         r"\x:bool -> (bool -> bool)(x x)x",
     );
 
-    evaluate_success(r"(\x: bool -> bool x) (\y: bool false)");
+    evaluate_check_type(r"(\x: bool -> bool x) (\y: bool false)", "bool -> bool");
     evaluate_eq(r"(\x: bool -> bool x true) (\y: bool false)", r"false");
-    evaluate_success(r"(\id:bool->bool id) (\x:bool x)");
+    evaluate_check_type(r"(\id:bool->bool id) (\x:bool x)", "bool -> bool");
 
     evaluate_eq(r"(\x:bool \y:bool (\z:bool z) x) false true", r"false");
 }
@@ -163,26 +168,38 @@ fn complex_app() {
     let idf = def(r"idf:(bool->bool)->bool->bool", r"\x:bool->bool x");
     let c = def(r"c:bool->bool->bool", r"\x:bool \y:bool x");
 
-    evaluate_success(&wrapped(&[&id, &idf, &c], r"(c true) ((idf id) false)"));
-    evaluate_success(&wrapped(&[&id, &idf, &c], r"idf (c (id true))"));
+    evaluate_check_type(
+        &wrapped(&[&id, &idf, &c], r"(c true) ((idf id) false)"),
+        "bool",
+    );
+    evaluate_check_type(
+        &wrapped(&[&id, &idf, &c], r"idf (c (id true))"),
+        "bool -> bool",
+    );
     type_check_failure(&wrapped(&[&idf, &c], r"idf c"));
 
     evaluate_eq(
         &wrapped(&[&id, &idf, &c], r"(c true) ((idf id) false)"),
         r"true",
     );
-    evaluate_success(&wrapped(&[&id, &idf, &c], r"idf (c (id true))"));
+    evaluate_check_type(
+        &wrapped(&[&id, &idf, &c], r"idf (c (id true))"),
+        "bool -> bool",
+    );
 }
 
 #[test]
 fn tuples() {
-    evaluate_success(r"(true, false)");
-    evaluate_success(r"()");
+    evaluate_check_type(r"(true, false)", "(bool, bool)");
+    evaluate_check_type(r"()", "()");
     evaluate_eq(r"(\x:(bool, ()) x) (false, ())", r"(false, ())");
     evaluate_eq(r"(\(x, y):(bool, bool) x) (false, true)", r"false");
     evaluate_eq(r"(\(x, x):(bool, bool) x) (false, true)", r"true");
 
-    evaluate_success(r"\(x,y,(z,x)): ((),(),((),bool)) x");
+    evaluate_check_type(
+        r"\(x,y,(z,x)): ((),(),((),bool)) x",
+        "((), (), ((), bool)) -> bool",
+    );
     type_check_failure(r"\(x,y,(z,x)): ((),(),(),bool) x");
     type_check_failure(r"\(x,x):(bool,()) (\y:bool ()) x");
 
@@ -191,9 +208,15 @@ fn tuples() {
 
 #[test]
 fn enums() {
-    evaluate_success(r"\x: enum {} x");
-    evaluate_success(r"\x: enum { single: enum {nested: enum {}} } x");
-    evaluate_success(r"\x: enum { some: bool, none: () } x");
+    evaluate_check_type(r"\x: enum {} x", "enum {} -> enum {}");
+    evaluate_check_type(
+        r"\x: enum { single: enum {nested: enum {}} } x",
+        "enum {single: enum {nested: enum {}}} -> enum {single: enum {nested: enum {}}}",
+    );
+    evaluate_check_type(
+        r"\x: enum { some: bool, none: () } x",
+        "enum {none: (), some: bool} -> enum {none: (), some: bool}",
+    );
 
     parse_failure(r"\enum:() ()");
     parse_failure(r"enum enum {some:bool,none:()}");
@@ -203,12 +226,14 @@ fn enums() {
         r"enum enum {some:bool        } some",
     );
 
-    evaluate_success(
+    evaluate_check_type(
         r"(\x: bool -> enum { some: bool, none: () } x) (enum enum {some:bool,none:()} some)",
+        "bool -> enum {none: (), some: bool}",
     );
 
-    evaluate_success(
+    evaluate_check_type(
         r"(\x: bool -> enum { some: bool, none: () } x) (enum enum {some:bool,none:()} some)",
+        "bool -> enum {none: (), some: bool}",
     );
 
     type_check_failure(r"match enum {} {}");
@@ -224,7 +249,7 @@ fn enums() {
             none(\():() ()),
         }",
     );
-    evaluate_success(
+    evaluate_check_type(
         r"match enum {
             some: bool,
             none: (),
@@ -232,6 +257,7 @@ fn enums() {
             some \x:bool x,
             none \():() false,
         }",
+        "enum {none: (), some: bool} -> bool",
     );
     evaluate_eq(
         r"
