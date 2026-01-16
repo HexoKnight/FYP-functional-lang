@@ -123,8 +123,13 @@ fn basic_app() {
 
     evaluate_success(r"(\x:bool x) true");
     evaluate_success(r"(\x: bool -> bool x) (\y: bool false)");
+    evaluate_success(r"(\x: bool -> bool x)  \y: bool false");
 
-    parse_failure(r"(\x: bool -> bool x)  \y: bool false");
+    parse_eq(
+        r"(\x:()->()->bool x()()) (\x:() (\x:() false))",
+        r"(\x:()->()->bool x()())  \x:()  \x:() false",
+    );
+
     parse_eq(
         r"\x:bool ->  bool -> bool  x x x",
         r"\x:bool -> (bool -> bool)(x x)x",

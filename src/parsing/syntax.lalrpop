@@ -37,14 +37,26 @@ WithInfo<T>: WithInfo<Span<'input>, T> = {
 pub Term: Term<'input> = WithInfo<RawTerm>;
 
 RawTerm: RawTerm<'input> = {
-    #[precedence(level="2")]
+    Abs,
+    App<AbsOrSimple>,
+    SimpleTerm,
+}
+
+Abs: RawTerm<'input> = {
     "\\" <arg:Assignee> ":" <arg_type:Type> <body:Box<WithInfo<RawTerm>>> => RawTerm::Abs { arg, arg_type, body },
+}
 
-    #[precedence(level="1")]
-    #[assoc(side="left")]
-    <func:Box<WithInfo<RawTerm>>> <arg:Box<WithInfo<RawTerm>>> => RawTerm::App { func, arg },
+App<Arg>: RawTerm<'input> = {
+    <func:Box<WithInfo<SimpleApp>>> <arg:Box<WithInfo<Arg>>> => RawTerm::App { func, arg },
+}
 
-    #[precedence(level="0")]
+AbsOrSimple: RawTerm<'input> = {
+    Abs,
+    SimpleTerm,
+}
+
+SimpleApp: RawTerm<'input> = {
+    App<SimpleTerm>,
     SimpleTerm,
 }
 
