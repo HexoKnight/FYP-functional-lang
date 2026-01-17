@@ -1,11 +1,13 @@
 # Language Overview
 
-Simply typed lambda calculus with the boolean base type. Fairly standard syntax:
-```
-(\id:bool->bool
-  (\y:bool id y) false
-) (\x:bool x)
-```
+Simply typed lambda calculus with some small extensions. Mostly standard syntax. See the [examples](examples).
+
+## Language features
+
+- structural type system
+- enum types
+- tuple types
+- subtyping
 
 # Design
 
