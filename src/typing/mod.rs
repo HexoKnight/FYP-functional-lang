@@ -438,7 +438,11 @@ impl<'a> Type<'a> {
                 }
             };
 
-            Ok(ctx.intern(ty))
+            let ty = ctx.intern(ty);
+            debug_assert!(ty_is_subtype(ty, ty1));
+            debug_assert!(ty_is_subtype(ty, ty2));
+
+            Ok(ty)
         }
 
         let mut iter = types.into_iter();
@@ -534,7 +538,11 @@ impl<'a> Type<'a> {
                 }
             };
 
-            Ok(ctx.intern(ty))
+            let ty = ctx.intern(ty);
+            debug_assert!(ty_is_subtype(ty1, ty));
+            debug_assert!(ty_is_subtype(ty2, ty));
+
+            Ok(ty)
         }
 
         let mut iter = types.into_iter();
