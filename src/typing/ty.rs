@@ -17,6 +17,7 @@ pub enum Type<'ctx> {
     Tuple(Box<[TypeRef<'ctx>]>),
 
     Bool,
+    Never,
 }
 
 impl Type<'_> {
@@ -69,6 +70,7 @@ impl Type<'_> {
                 w.write_str(")")
             }
             Type::Bool => w.write_str("bool"),
+            Type::Never => w.write_str("!"),
         }
     }
 

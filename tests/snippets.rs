@@ -236,7 +236,7 @@ fn enums() {
         "bool -> enum {none: (), some: bool}",
     );
 
-    type_check_failure(r"match enum {} {}");
+    evaluate_success(r"match enum {} {}");
     type_check_failure(
         r"match enum {some:bool,none:()} {
             hello(\x:bool ()),
@@ -293,4 +293,9 @@ fn subtyping() {
     evaluate_success(r"(). enum enum {a:()} a .\x:enum{a:(), new:()} x");
     evaluate_success(r"\x:(enum{}, ()) x.\x:(enum{new:()}, ()) x");
     evaluate_success(r"\x:enum{a:()} -> () x.\x:enum{} -> () x");
+}
+
+#[test]
+fn never() {
+    evaluate_success(r"\never:enum{} never.match enum{} {} .\actualnever:! ()");
 }

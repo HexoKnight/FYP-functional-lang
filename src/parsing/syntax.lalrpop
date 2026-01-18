@@ -109,4 +109,5 @@ SimpleType: RawType<'input> = {
         RawType::Enum(variants.into_iter().collect()),
 
     "bool" => RawType::Bool,
+    "!" => RawType::Never,
 }

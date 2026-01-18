@@ -300,6 +300,7 @@ impl<'i: 'a, 'a> uir::Type<'i> {
                     .try_collect()?,
             ),
             uir::RawType::Bool => Type::Bool,
+            uir::RawType::Never => Type::Never,
         };
 
         Ok(ctx.intern(ty))
@@ -331,7 +332,9 @@ fn ty_is_subtype<'a>(supertype: InternedType<'a>, subtype: InternedType<'a>) -> 
                 && zip_eq(elems_sup, elems_sub).all(|(sup, sub)| ty_is_subtype(sup, sub))
         }
         (Type::Bool, Type::Bool) => true,
-        _ => false,
+        (Type::Never, _) | (_, Type::Never) => true,
+        // not using _ to avoid catching more cases than intended
+        (Type::Arr { .. } | Type::Enum(..) | Type::Tuple(..) | Type::Bool, _) => false,
     }
 }
 
@@ -340,7 +343,6 @@ fn ty_eq<'a>(ty1: InternedType<'a>, ty2: InternedType<'a>) -> bool {
 }
 
 impl<'a> Type<'a> {
-    // TODO: when impl the top and bottom types, remove Result
     /// Join multiple types to produce the 'minimal' supertype.
     /// Intuitively, it's the union of the input types.
     ///
@@ -349,8 +351,11 @@ impl<'a> Type<'a> {
     /// - a subtype of all other supertypes of every input type.
     ///
     /// # Errors
-    /// - joining 0 types (should be bottom type)
-    /// - joining incompatible types (should be top type)
+    /// When joining incompatible types (ie. types with no common supertypes).
+    ///
+    /// We could return the top type in this situation but the top type is essentially useless (ie.
+    /// isomorphic to the unit type) so the user could just discard the values to join unit types
+    /// instead.
     fn join(
         types: impl IntoIterator<Item = InternedType<'a>>,
         ctx: &Context<'a, '_>,
@@ -410,7 +415,6 @@ impl<'a> Type<'a> {
                     let len1 = elems1.len();
                     let len2 = elems2.len();
                     if len1 != len2 {
-                        // TODO: top type
                         return Err(format!(
                             "cannot meet tuples with different lengths:\n\
                             tuple 1: {len1} elements: {ty1}\n\
@@ -426,8 +430,9 @@ impl<'a> Type<'a> {
                     )
                 }
                 (Type::Bool, Type::Bool) => Type::Bool,
-                _ => {
-                    // TODO: top type
+                (Type::Never, ty) | (ty, Type::Never) => return Ok(ty),
+                // not using _ to avoid catching more cases than intended
+                (Type::Arr { .. } | Type::Enum(..) | Type::Tuple(..) | Type::Bool, _) => {
                     return Err(format!(
                         "cannot join incompatible types:\n\
                         type 1: {ty1}\n\
@@ -447,13 +452,11 @@ impl<'a> Type<'a> {
 
         let mut iter = types.into_iter();
         let Some(first) = iter.next() else {
-            // TODO: bottom type
-            return Err("cannot join 0 types".to_string());
+            return Ok(ctx.intern(Type::Never));
         };
         iter.try_fold(first, |ty1, ty2| join2(ty1, ty2, ctx))
     }
 
-    // TODO: when impl the top and bottom types, remove Result
     /// Meet multiple types to produce the 'maximal' subtype.
     /// Intuitively, it's the intersection of the input types.
     ///
@@ -462,8 +465,7 @@ impl<'a> Type<'a> {
     /// - a supertype of all other subtypes of every input type.
     ///
     /// # Errors
-    /// - meeting 0 types (should be top type)
-    /// - meeting incompatible types (should be bottom type)
+    /// - meeting 0 types (should not occur in practice)
     fn meet(
         types: impl IntoIterator<Item = InternedType<'a>>,
         ctx: &Context<'a, '_>,
@@ -509,32 +511,21 @@ impl<'a> Type<'a> {
                 (Type::Tuple(elems1), Type::Tuple(elems2)) => {
                     let len1 = elems1.len();
                     let len2 = elems2.len();
-                    if len1 != len2 {
-                        // TODO: bottom type
-                        return Err(format!(
-                            "cannot meet tuples with different lengths:\n\
-                            tuple 1: {len1} elements: {ty1}\n\
-                            tuple 2: {len2} elements: {ty2}",
-                            ty1 = ty1.display(),
-                            ty2 = ty2.display()
-                        ));
+                    if len1 == len2 {
+                        Type::Tuple(
+                            zip_eq(elems1, elems2)
+                                .map(|(ty1, ty2)| meet2(ty1, ty2, ctx))
+                                .try_collect()?,
+                        )
+                    } else {
+                        Type::Never
                     }
-                    Type::Tuple(
-                        zip_eq(elems1, elems2)
-                            .map(|(ty1, ty2)| meet2(ty1, ty2, ctx))
-                            .try_collect()?,
-                    )
                 }
                 (Type::Bool, Type::Bool) => Type::Bool,
-                _ => {
-                    // TODO: bottom type
-                    return Err(format!(
-                        "cannot meet incompatible types:\n\
-                        type 1: {ty1}\n\
-                        type 2: {ty2}\n",
-                        ty1 = ty1.display(),
-                        ty2 = ty2.display()
-                    ));
+                (Type::Never, _) | (_, Type::Never) => Type::Never,
+                // not using _ to avoid catching more cases than intended
+                (Type::Arr { .. } | Type::Enum(..) | Type::Tuple(..) | Type::Bool, _) => {
+                    Type::Never
                 }
             };
 
@@ -547,7 +538,6 @@ impl<'a> Type<'a> {
 
         let mut iter = types.into_iter();
         let Some(first) = iter.next() else {
-            // TODO: top type
             return Err("cannot meet 0 types".to_string());
         };
         iter.try_fold(first, |ty1, ty2| meet2(ty1, ty2, ctx))

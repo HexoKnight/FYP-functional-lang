@@ -46,4 +46,5 @@ pub enum RawType<'i> {
     Enum(HashMap<&'i str, Type<'i>>),
 
     Bool,
+    Never,
 }

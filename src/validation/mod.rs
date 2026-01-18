@@ -132,6 +132,7 @@ impl<'i> Validate<'_> for ast::Type<'i> {
                     .try_collect()?,
             ),
             ast::RawType::Bool => ir::RawType::Bool,
+            ast::RawType::Never => ir::RawType::Never,
         };
         Ok(WithInfo(*info, ty))
     }
