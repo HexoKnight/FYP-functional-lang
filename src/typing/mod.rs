@@ -194,7 +194,7 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                         enum_type = enum_type.display()
                     ));
                 };
-                let Some(variant_type) = variants.0.get(label.0) else {
+                let Some(variant_type) = variants.0.get(label) else {
                     // TODO
                     return Err(format!(
                         "enum type does not contain label '{label}': {enum_type}",
@@ -224,7 +224,7 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     .map(|(label, func)| -> Result<_, TypeCheckError> {
                         let (func, func_type) = func.type_check(ctx)?;
                         // check dead branches
-                        let Some(variant_type) = variants.0.get(label.0) else {
+                        let Some(variant_type) = variants.0.get(label) else {
                             // TODO
                             return Err(format!(
                                 "enum type does not contain label '{label}': {enum_type}",

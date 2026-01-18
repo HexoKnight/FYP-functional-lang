@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use itertools::Itertools;
 
 use crate::common::WithInfo;
@@ -97,8 +99,9 @@ impl<'i> Validate<'i> for ast::Term<'i> {
             }
             ast::RawTerm::Match(enum_type, arms) => ir::RawTerm::Match(
                 enum_type.validate(ctx)?,
-                arms.iter()
-                    .map(|(i, t)| t.validate(ctx).map(|t| (EnumLabel(i.name), t)))
+                check_unique_labels(arms)
+                    .map_ok(|(l, t)| t.validate(ctx).map(|t| (l, t)))
+                    .flatten_ok()
                     .try_collect()?,
             ),
             ast::RawTerm::Tuple(elements) => {
@@ -126,9 +129,9 @@ impl<'i> Validate<'_> for ast::Type<'i> {
                 ir::RawType::Tuple(elements.iter().map(|t| t.validate(ctx)).try_collect()?)
             }
             ast::RawType::Enum(variants) => ir::RawType::Enum(
-                variants
-                    .iter()
-                    .map(|(i, t)| t.validate(ctx).map(|t| (i.name, t)))
+                check_unique_labels(variants)
+                    .map_ok(|(l, t)| t.validate(ctx).map(|t| (l, t)))
+                    .flatten_ok()
                     .try_collect()?,
             ),
             ast::RawType::Bool => ir::RawType::Bool,
@@ -138,7 +141,7 @@ impl<'i> Validate<'_> for ast::Type<'i> {
     }
 }
 
-pub fn extract_idents<'a, 'i>(
+fn extract_idents<'a, 'i>(
     assignee: &'a ast::Assignee<'i>,
 ) -> (ArgStructure, impl Iterator<Item = &'a ast::Ident<'i>>) {
     fn extract_idents_inner<'a, 'i>(
@@ -163,4 +166,17 @@ pub fn extract_idents<'a, 'i>(
         extract_idents_inner(assignee, &mut idents),
         idents.into_iter(),
     )
+}
+
+fn check_unique_labels<'i, 'a, I>(
+    labelled_items: &'a [(ast::Ident<'i>, I)],
+) -> impl Iterator<Item = Result<(EnumLabel<'i>, &'a I), ValidationError>> {
+    let mut labels = HashMap::new();
+    labelled_items.iter().map(move |(ident, i)| {
+        let label = EnumLabel(ident.name);
+        if let Some(_prev_ident) = labels.insert(label, ident) {
+            return Err(format!("label '{label}' appears multiple times"));
+        }
+        Ok((label, i))
+    })
 }

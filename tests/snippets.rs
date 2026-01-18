@@ -237,6 +237,9 @@ fn enums() {
     );
 
     evaluate_success(r"match enum {} {}");
+    validate_failure(r"match enum {none:(),none:()} { none\():()()}");
+    validate_failure(r"match enum {none:()} { none\():()(), none\():()()}");
+
     type_check_failure(
         r"match enum {some:bool,none:()} {
             hello(\x:bool ()),

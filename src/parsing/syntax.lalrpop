@@ -106,7 +106,7 @@ SimpleType: RawType<'input> = {
 
     Tuple<Type> => RawType::Tuple(<>),
     "enum" "{" <variants:CommaSep<(<Ident> ":" <Type>)>> "}" =>
-        RawType::Enum(variants.into_iter().collect()),
+        RawType::Enum(variants.into_boxed_slice()),
 
     "bool" => RawType::Bool,
     "!" => RawType::Never,

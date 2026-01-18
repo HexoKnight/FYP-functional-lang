@@ -12,7 +12,7 @@ pub enum ArgStructure {
     Var,
 }
 
-#[derive(Hash, Copy, Clone, Eq, PartialEq)]
+#[derive(Hash, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct EnumLabel<'i>(pub &'i str);
 
 newtype_derive!([EnumLabel<'i>(&'i str)] Debug, Display);

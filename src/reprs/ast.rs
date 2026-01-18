@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{common::WithInfo, reprs::common::Span};
 
 pub type Term<'i> = WithInfo<Span<'i>, RawTerm<'i>>;
@@ -50,7 +48,7 @@ pub enum RawType<'i> {
     },
 
     Tuple(Box<[Type<'i>]>),
-    Enum(HashMap<Ident<'i>, Type<'i>>),
+    Enum(Box<[(Ident<'i>, Type<'i>)]>),
 
     Bool,
     Never,

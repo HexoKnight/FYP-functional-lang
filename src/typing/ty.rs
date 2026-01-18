@@ -1,6 +1,6 @@
 use itertools::Itertools;
 
-use crate::hashed_hashmap::HashedHashMap;
+use crate::{hashed_hashmap::HashedHashMap, reprs::common::EnumLabel};
 
 type TypeRef<'ctx> = &'ctx Type<'ctx>;
 
@@ -13,7 +13,7 @@ pub enum Type<'ctx> {
         result: TypeRef<'ctx>,
     },
 
-    Enum(HashedHashMap<&'ctx str, TypeRef<'ctx>>),
+    Enum(HashedHashMap<EnumLabel<'ctx>, TypeRef<'ctx>>),
     Tuple(Box<[TypeRef<'ctx>]>),
 
     Bool,
@@ -40,12 +40,12 @@ impl Type<'_> {
                 w.write_str("enum {")?;
                 let mut iter = variants.0.iter().sorted_unstable_by_key(|(l, _)| *l);
                 if let Some((l, ty)) = iter.next() {
-                    w.write_str(l)?;
+                    write!(w, "{l}")?;
                     w.write_str(": ")?;
                     ty.write_display(w)?;
                     for (l, ty) in iter {
                         w.write_str(", ")?;
-                        w.write_str(l)?;
+                        write!(w, "{l}")?;
                         w.write_str(": ")?;
                         ty.write_display(w)?;
                     }

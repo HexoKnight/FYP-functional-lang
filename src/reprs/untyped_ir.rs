@@ -26,7 +26,7 @@ pub enum RawTerm<'i> {
     },
 
     Enum(Type<'i>, EnumLabel<'i>),
-    Match(Type<'i>, Box<[(EnumLabel<'i>, Term<'i>)]>),
+    Match(Type<'i>, HashMap<EnumLabel<'i>, Term<'i>>),
 
     Tuple(Box<[Term<'i>]>),
 
@@ -43,7 +43,7 @@ pub enum RawType<'i> {
     },
 
     Tuple(Box<[Type<'i>]>),
-    Enum(HashMap<&'i str, Type<'i>>),
+    Enum(HashMap<EnumLabel<'i>, Type<'i>>),
 
     Bool,
     Never,
