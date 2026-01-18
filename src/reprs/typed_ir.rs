@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     common::WithInfo,
     reprs::common::{ArgStructure, EnumLabel, Span},
@@ -21,7 +23,7 @@ pub enum RawTerm<'i> {
     },
 
     Enum(EnumLabel<'i>),
-    Match(Box<[(EnumLabel<'i>, Term<'i>)]>),
+    Match(HashMap<EnumLabel<'i>, Term<'i>>),
 
     Tuple(Box<[Term<'i>]>),
 

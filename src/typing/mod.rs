@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use itertools::{Itertools, zip_eq};
 use typed_arena::Arena;
 
@@ -219,7 +221,7 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     ));
                 };
 
-                let (arms, result_types): (Vec<_>, Vec<_>) = arms
+                let (arms, result_types): (HashMap<_, _>, Vec<_>) = arms
                     .iter()
                     .map(|(label, func)| -> Result<_, TypeCheckError> {
                         let (func, func_type) = func.type_check(ctx)?;
@@ -257,8 +259,16 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     .filter_map_ok(|o| o)
                     .try_collect()?;
 
+                variants.0.iter().try_for_each(|(label, _)| {
+                    if arms.contains_key(label) {
+                        Ok(())
+                    } else {
+                        // TODO
+                        Err(format!("match missing arm with label '{label}'"))
+                    }
+                })?;
                 (
-                    tir::RawTerm::Match(arms.into_boxed_slice()),
+                    tir::RawTerm::Match(arms),
                     ctx.intern(Type::Arr {
                         arg: enum_type,
                         result: Type::join(result_types, ctx)?,

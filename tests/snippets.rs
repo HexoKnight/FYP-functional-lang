@@ -242,6 +242,11 @@ fn enums() {
 
     type_check_failure(
         r"match enum {some:bool,none:()} {
+            none\x:()x,
+        }",
+    );
+    type_check_failure(
+        r"match enum {some:bool,none:()} {
             hello(\x:bool ()),
             none(\():() ()),
         }",
