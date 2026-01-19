@@ -43,5 +43,6 @@ pub enum RawType<'i> {
     Enum(HashMap<EnumLabel<'i>, Type<'i>>),
 
     Bool,
+    Any,
     Never,
 }

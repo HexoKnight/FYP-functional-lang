@@ -49,5 +49,6 @@ pub enum RawType<'i> {
     Enum(Box<[(Ident<'i>, Type<'i>)]>),
 
     Bool,
+    Any,
     Never,
 }

@@ -313,6 +313,7 @@ impl<'i: 'a, 'a> uir::Type<'i> {
                     .try_collect()?,
             ),
             uir::RawType::Bool => Type::Bool,
+            uir::RawType::Any => Type::Any,
             uir::RawType::Never => Type::Never,
         };
 
@@ -345,7 +346,10 @@ fn ty_is_subtype<'a>(supertype: InternedType<'a>, subtype: InternedType<'a>) -> 
                 && zip_eq(elems_sup, elems_sub).all(|(sup, sub)| ty_is_subtype(sup, sub))
         }
         (Type::Bool, Type::Bool) => true,
-        (Type::Never, _) | (_, Type::Never) => true,
+        (Type::Any, _) => true,
+        (_, Type::Any) => false,
+        (_, Type::Never) => true,
+        (Type::Never, _) => false,
         // not using _ to avoid catching more cases than intended
         (Type::Arr { .. } | Type::Enum(..) | Type::Tuple(..) | Type::Bool, _) => false,
     }
@@ -443,6 +447,7 @@ impl<'a> Type<'a> {
                     )
                 }
                 (Type::Bool, Type::Bool) => Type::Bool,
+                (any @ Type::Any, _) | (_, any @ Type::Any) => return Ok(any),
                 (Type::Never, ty) | (ty, Type::Never) => return Ok(ty),
                 // not using _ to avoid catching more cases than intended
                 (Type::Arr { .. } | Type::Enum(..) | Type::Tuple(..) | Type::Bool, _) => {
@@ -535,7 +540,8 @@ impl<'a> Type<'a> {
                     }
                 }
                 (Type::Bool, Type::Bool) => Type::Bool,
-                (Type::Never, _) | (_, Type::Never) => Type::Never,
+                (Type::Any, ty) | (ty, Type::Any) => return Ok(ty),
+                (never @ Type::Never, _) | (_, never @ Type::Never) => return Ok(never),
                 // not using _ to avoid catching more cases than intended
                 (Type::Arr { .. } | Type::Enum(..) | Type::Tuple(..) | Type::Bool, _) => {
                     Type::Never

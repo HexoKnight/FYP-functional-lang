@@ -95,8 +95,8 @@ mod utils {
     }
 
     #[track_caller]
-    pub fn evaluate_check_type(src1: &str, ty: &str) {
-        assert_eq!(evaluate_success(src1).1, ty)
+    pub fn evaluate_check_type(src: &str, ty: &str) {
+        assert_eq!(evaluate_success(src).1, ty)
     }
 }
 
@@ -305,5 +305,23 @@ fn subtyping() {
 
 #[test]
 fn never() {
-    evaluate_success(r"\never:enum{} never.match enum{} {} .\actualnever:! ()");
+    evaluate_check_type(
+        r"\never:enum{} never.match enum{} {} .\actualnever:! actualnever",
+        "enum {} -> !",
+    );
+    evaluate_check_type(
+        r"\x:! x.\anytype: (bool, (), enum{}) anytype",
+        "! -> (bool, (), enum {})",
+    );
+}
+
+#[test]
+fn any() {
+    evaluate_check_type(
+        r"match enum{a:(), b:bool} {a\x:_ x, b\x:_ x}",
+        "enum {a: (), b: bool} -> _",
+    );
+
+    evaluate_check_type(r"true .\x:_ x", "_");
+    evaluate_check_type(r"\x:enum{a:()} x.\x:_ x", "enum {a: ()} -> _");
 }
