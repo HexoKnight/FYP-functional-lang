@@ -65,9 +65,7 @@ SimpleTerm: RawTerm<'input> = {
     // TODO: capture the inner info instead
     "(" <RawTerm> ")",
 
-    <ident:Ident> =>? {
-        Ok(RawTerm::Var { ident })
-    },
+    Ident => RawTerm::Var(<>),
 
     "enum" <Type> <Ident> => RawTerm::Enum(<>),
     "match" <ty:Type> "{" <arms:CommaSep<(Ident Term)>> "}" => RawTerm::Match(ty, arms.into_boxed_slice()),

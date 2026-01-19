@@ -15,9 +15,7 @@ pub enum RawTerm<'i> {
         arg: Box<Term<'i>>,
     },
 
-    Var {
-        ident: Ident<'i>,
-    },
+    Var(Ident<'i>),
 
     Enum(Type<'i>, Ident<'i>),
     Match(Type<'i>, Box<[(Ident<'i>, Term<'i>)]>),

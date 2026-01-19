@@ -12,6 +12,8 @@ pub use self::context::ContextClosure;
 mod context {
     use typed_arena::Arena;
 
+    use crate::reprs::common::Idx;
+
     use super::Value;
 
     // due to self references and dropck, this type must (transitively) have a 'safe' drop impl ie.:
@@ -50,8 +52,8 @@ mod context {
             new
         }
 
-        pub(super) fn get_var(&self, index: usize) -> Option<&'a Value<'i, 'ir, 'a>> {
-            self.var_stack.iter().copied::<&_>().nth_back(index)
+        pub(super) fn get_var(&self, index: Idx) -> Option<&'a Value<'i, 'ir, 'a>> {
+            index.get(&self.var_stack).copied()
         }
 
         // TODO: perhaps try to close only over referenced vars
@@ -116,9 +118,9 @@ impl<'i: 'ir, 'ir: 'a, 'a> Evaluate<'i, 'ir, 'a> for tir::Term<'i> {
                 let arg = arg.evaluate(ctx)?;
                 func.evaluate_arg(arg, ctx)?
             }
-            tir::RawTerm::Var { index } => ctx
+            tir::RawTerm::Var(index) => ctx
                 .get_var(*index)
-                .ok_or_else(|| format!("illegal failure: variable index not found: {index}\n"))?
+                .ok_or_else(|| format!("illegal failure: variable index not found: {index:?}\n"))?
                 .1
                 // TODO: maybe try eliminate this clone??
                 .clone(),

@@ -18,7 +18,10 @@ mod ty;
 mod context {
     use typed_arena::Arena;
 
-    use crate::intern::InternedArena;
+    use crate::{
+        intern::InternedArena,
+        reprs::common::Idx,
+    };
 
     use super::{InternedType, ty::Type};
 
@@ -70,8 +73,8 @@ mod context {
             new
         }
 
-        pub(super) fn get_var_ty(&self, index: usize) -> Option<&'a Type<'a>> {
-            self.var_ty_stack.iter().copied::<&_>().nth_back(index)
+        pub(super) fn get_var_ty(&self, index: Idx) -> Option<&'a Type<'a>> {
+            index.get(&self.var_ty_stack).copied()
         }
     }
 }
@@ -180,10 +183,10 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                 };
                 (tir::RawTerm::App { func, arg }, ty)
             }
-            uir::RawTerm::Var { name: _, index } => (
-                tir::RawTerm::Var { index: *index },
+            uir::RawTerm::Var(index) => (
+                tir::RawTerm::Var(*index),
                 ctx.get_var_ty(*index).ok_or_else(|| {
-                    format!("illegal failure: variable index not found: {index}\n")
+                    format!("illegal failure: variable index not found: {index:?}\n")
                 })?,
             ),
             uir::RawTerm::Enum(enum_type, label) => {

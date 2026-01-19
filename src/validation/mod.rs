@@ -10,6 +10,8 @@ use crate::reprs::untyped_ir as ir;
 use self::context::Context;
 
 mod context {
+    use crate::reprs::common::Idx;
+
     /// Cheaply cloneable (hopefully) append-only stack
     type Stack<T> = Vec<T>;
 
@@ -32,12 +34,8 @@ mod context {
             new
         }
 
-        pub(super) fn find_var(&self, name: &'i str) -> Option<usize> {
-            self.var_stack
-                .iter()
-                .copied::<&_>()
-                .rev()
-                .position(|var| var == name)
+        pub(super) fn find_var(&self, name: &'i str) -> Option<Idx> {
+            Idx::find(&self.var_stack, |var| *var == name)
         }
     }
 }
@@ -85,14 +83,11 @@ impl<'i> Validate<'i> for ast::Term<'i> {
                 func: func.validate(ctx)?,
                 arg: arg.validate(ctx)?,
             },
-            ast::RawTerm::Var { ident } => {
+            ast::RawTerm::Var(ident) => {
                 let Some(index) = ctx.find_var(ident.name) else {
                     return Err(format!("variable '{}' not found", ident.name));
                 };
-                ir::RawTerm::Var {
-                    name: ident.name,
-                    index,
-                }
+                ir::RawTerm::Var(index)
             }
             ast::RawTerm::Enum(enum_type, variant) => {
                 ir::RawTerm::Enum(enum_type.validate(ctx)?, EnumLabel(variant.name))
