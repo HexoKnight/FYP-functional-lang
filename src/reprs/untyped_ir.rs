@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     common::WithInfo,
-    reprs::common::{ArgStructure, EnumLabel, Idx, Span},
+    reprs::common::{ArgStructure, EnumLabel, Idx, Lvl, Span},
 };
 
 pub type Term<'i> = WithInfo<Span<'i>, RawTerm<'i>>;
@@ -20,6 +20,17 @@ pub enum RawTerm<'i> {
         arg: Box<Term<'i>>,
     },
 
+    TyAbs {
+        name: &'i str,
+        bounds: TyBounds<'i>,
+
+        body: Box<Term<'i>>,
+    },
+    TyApp {
+        abs: Box<Term<'i>>,
+        arg: Box<Type<'i>>,
+    },
+
     Var(Idx),
 
     Enum(Type<'i>, EnumLabel<'i>),
@@ -30,10 +41,24 @@ pub enum RawTerm<'i> {
     Bool(bool),
 }
 
+#[derive(Eq, PartialEq, Debug)]
+pub struct TyBounds<'i> {
+    pub upper: Option<Type<'i>>,
+    pub lower: Option<Type<'i>>,
+}
+
 pub type Type<'i> = WithInfo<Span<'i>, RawType<'i>>;
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum RawType<'i> {
+    TyAbs {
+        name: &'i str,
+        bounds: Box<TyBounds<'i>>,
+        result: Box<Type<'i>>,
+    },
+
+    TyVar(Lvl),
+
     Arr {
         arg: Box<Type<'i>>,
         result: Box<Type<'i>>,

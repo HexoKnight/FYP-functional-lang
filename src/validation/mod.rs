@@ -10,7 +10,7 @@ use crate::reprs::untyped_ir as ir;
 use self::context::Context;
 
 mod context {
-    use crate::reprs::common::Idx;
+    use crate::reprs::common::{Idx, Lvl};
 
     /// Cheaply cloneable (hopefully) append-only stack
     type Stack<T> = Vec<T>;
@@ -19,12 +19,14 @@ mod context {
     #[derive(Clone)]
     pub(super) struct Context<'i> {
         var_stack: Stack<&'i str>,
+        ty_var_stack: Stack<&'i str>,
     }
 
     impl<'i> Context<'i> {
         pub(super) fn new() -> Self {
             Self {
                 var_stack: Vec::new(),
+                ty_var_stack: Vec::new(),
             }
         }
 
@@ -36,6 +38,16 @@ mod context {
 
         pub(super) fn find_var(&self, name: &'i str) -> Option<Idx> {
             Idx::find(&self.var_stack, |var| *var == name)
+        }
+
+        pub(super) fn push_ty_var(&self, ty_var: &'i str) -> Self {
+            let mut new = self.clone();
+            new.ty_var_stack.push(ty_var);
+            new
+        }
+
+        pub(super) fn find_ty_var(&self, name: &'i str) -> Option<Lvl> {
+            Lvl::find(&self.ty_var_stack, |ty_var| *ty_var == name)
         }
     }
 }
@@ -83,6 +95,15 @@ impl<'i> Validate<'i> for ast::Term<'i> {
                 func: func.validate(ctx)?,
                 arg: arg.validate(ctx)?,
             },
+            ast::RawTerm::TyAbs { arg, bounds, body } => ir::RawTerm::TyAbs {
+                name: arg.name,
+                bounds: bounds.validate(ctx)?,
+                body: body.validate(&ctx.push_ty_var(arg.name))?,
+            },
+            ast::RawTerm::TyApp { func, arg } => ir::RawTerm::TyApp {
+                abs: func.validate(ctx)?,
+                arg: arg.validate(ctx)?,
+            },
             ast::RawTerm::Var(ident) => {
                 let Some(index) = ctx.find_var(ident.name) else {
                     return Err(format!("variable '{}' not found", ident.name));
@@ -116,6 +137,21 @@ impl<'i> Validate<'_> for ast::Type<'i> {
         let WithInfo(info, ty) = self;
 
         let ty = match ty {
+            ast::RawType::TyAbs {
+                arg,
+                bounds,
+                result,
+            } => ir::RawType::TyAbs {
+                name: arg.name,
+                bounds: bounds.validate(ctx)?,
+                result: result.validate(&ctx.push_ty_var(arg.name))?,
+            },
+            ast::RawType::TyVar(ident) => {
+                let Some(level) = ctx.find_ty_var(ident.name) else {
+                    return Err(format!("type variable '{}' not found", ident.name));
+                };
+                ir::RawType::TyVar(level)
+            }
             ast::RawType::Arr { arg, result } => ir::RawType::Arr {
                 arg: arg.validate(ctx)?,
                 result: result.validate(ctx)?,
@@ -134,6 +170,18 @@ impl<'i> Validate<'_> for ast::Type<'i> {
             ast::RawType::Never => ir::RawType::Never,
         };
         Ok(WithInfo(*info, ty))
+    }
+}
+
+impl<'i> Validate<'_> for ast::TyBounds<'i> {
+    type Validated = ir::TyBounds<'i>;
+
+    fn validate(&self, ctx: &Context) -> Result<Self::Validated, ValidationError> {
+        let ast::TyBounds { upper, lower } = self;
+        Ok(ir::TyBounds {
+            upper: upper.as_ref().map(|ty| ty.validate(ctx)).transpose()?,
+            lower: lower.as_ref().map(|ty| ty.validate(ctx)).transpose()?,
+        })
     }
 }
 

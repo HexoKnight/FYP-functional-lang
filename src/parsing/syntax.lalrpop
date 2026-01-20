@@ -45,10 +45,12 @@ RawTerm: RawTerm<'input> = {
 
 Abs: RawTerm<'input> = {
     "\\" <arg:Assignee> ":" <arg_type:Type> <body:Box<Term>> => RawTerm::Abs { arg, arg_type, body },
+    "?" <arg:Ident> <bounds:TyBounds> <body:Box<Term>> => RawTerm::TyAbs { arg, bounds, body },
 }
 
 App<Abs>: RawTerm<'input> = {
     <func:Box<WithInfo<AppLeft>>> <arg:Box<WithInfo<AppRight<Abs>>>> => RawTerm::App { func, arg },
+    <func:Box<WithInfo<AppLeft>>> "[" <arg:Box<Type>> "]" => RawTerm::TyApp { func, arg },
 }
 
 Dot<Abs>: RawTerm<'input> = {
@@ -81,6 +83,10 @@ Assignee: Assignee<'input> = {
     Ident => Assignee::Ident(<>),
 }
 
+TyBounds: TyBounds<'input> = {
+    <upper:("<" <Type>)?> <lower:(">" <Type>)?> => TyBounds { upper, lower },
+}
+
 Tuple<T>: Box<[T]> = {
     "(" ")" => Box::new([]),
     // require trailing comma on 1-tuple
@@ -91,16 +97,17 @@ Tuple<T>: Box<[T]> = {
 Type: Type<'input> = WithInfo<RawType>;
 
 RawType: RawType<'input> = {
-    #[precedence(level="1")]
-    #[assoc(side="right")]
-    <arg:Box<WithInfo<RawType>>> "->" <result:Box<WithInfo<RawType>>> => RawType::Arr { arg, result },
+    <arg:Box<WithInfo<SimpleType>>> "->" <result:Box<Type>> => RawType::Arr { arg, result },
 
-    #[precedence(level="0")]
+    "[" <arg:Ident> <bounds:Box<TyBounds>> "]" <result:Box<Type>> => RawType::TyAbs { arg, bounds, result },
+
     SimpleType,
 }
 SimpleType: RawType<'input> = {
     // TODO: capture the inner info instead
     "(" <RawType> ")",
+
+    Ident => RawType::TyVar(<>),
 
     Tuple<Type> => RawType::Tuple(<>),
     "enum" "{" <variants:CommaSep<(<Ident> ":" <Type>)>> "}" =>

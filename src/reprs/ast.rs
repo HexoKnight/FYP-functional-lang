@@ -15,6 +15,17 @@ pub enum RawTerm<'i> {
         arg: Box<Term<'i>>,
     },
 
+    TyAbs {
+        arg: Ident<'i>,
+        bounds: TyBounds<'i>,
+
+        body: Box<Term<'i>>,
+    },
+    TyApp {
+        func: Box<Term<'i>>,
+        arg: Box<Type<'i>>,
+    },
+
     Var(Ident<'i>),
 
     Enum(Type<'i>, Ident<'i>),
@@ -31,6 +42,12 @@ pub enum Assignee<'i> {
     Ident(Ident<'i>),
 }
 
+#[derive(Eq, PartialEq, Debug)]
+pub struct TyBounds<'i> {
+    pub upper: Option<Type<'i>>,
+    pub lower: Option<Type<'i>>,
+}
+
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub struct Ident<'i> {
     pub name: &'i str,
@@ -40,6 +57,14 @@ pub type Type<'i> = WithInfo<Span<'i>, RawType<'i>>;
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum RawType<'i> {
+    TyAbs {
+        arg: Ident<'i>,
+        bounds: Box<TyBounds<'i>>,
+        result: Box<Type<'i>>,
+    },
+
+    TyVar(Ident<'i>),
+
     Arr {
         arg: Box<Type<'i>>,
         result: Box<Type<'i>>,

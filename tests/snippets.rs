@@ -90,6 +90,16 @@ mod utils {
     }
 
     #[track_caller]
+    pub fn type_check_eq(src1: &str, src2: &str) {
+        assert_eq!(type_check_success(src1), type_check_success(src2))
+    }
+
+    #[track_caller]
+    pub fn type_check_type_eq(src1: &str, src2: &str) {
+        assert_eq!(type_check_success(src1).1, type_check_success(src2).1)
+    }
+
+    #[track_caller]
     pub fn evaluate_eq(src1: &str, src2: &str) {
         assert_eq!(evaluate_success(src1).0, evaluate_success(src2).0)
     }
@@ -324,4 +334,70 @@ fn any() {
 
     evaluate_check_type(r"true .\x:_ x", "_");
     evaluate_check_type(r"\x:enum{a:()} x.\x:_ x", "enum {a: ()} -> _");
+}
+
+#[test]
+fn ty_abs() {
+    evaluate_check_type(r"?T \x:T x", "[T] T -> T");
+    evaluate_check_type(
+        r"?T<enum{a:()} \x:T x.match enum {a:()} {a\():()()}",
+        "[T <enum {a: ()}] T -> ()",
+    );
+
+    type_check_type_eq(
+        r"(?T<bool \x:T x)",
+        r"(?T      \x:T x) .\id: [T<bool] T -> T id",
+    );
+    type_check_type_eq(
+        r"(?T       \x:T x)",
+        r"(?T <_ >! \x:T x) .\id: [T] T -> T id",
+    );
+}
+
+#[test]
+fn ty_app() {
+    evaluate_eq(r"(?T \x:T x) [bool] true", "true");
+    type_check_eq(
+        r"(?T \x:T x) .\id: [T] T -> T id",
+        r"(?A \a:A a) .\id: [T] T -> T id",
+    );
+    type_check_eq(
+        r"(?T<bool \x:T x) .\id: [T<bool] T -> T id",
+        r"(?T      \x:T x) .\id: [T<bool] T -> T id",
+    );
+
+    evaluate_check_type(r"(?T<enum{a:()} \x:T x) [enum{}]", "enum {} -> enum {}");
+    evaluate_check_type(
+        r"?T<enum{a:()} enum enum {e:T} e",
+        "[T <enum {a: ()}] T -> enum {e: T}",
+    );
+    evaluate_check_type(
+        r"(?T<enum{a:()} enum enum {e:T} e) [enum{}]",
+        "enum {} -> enum {e: enum {}}",
+    );
+
+    evaluate_check_type(
+        r"?A ?R ?F<A->R \(f, a):(F, A) f a",
+        "[A] [R] [F <A -> R] (F, A) -> R",
+    );
+    evaluate_check_type(r"?A ?R \(f, a):(A->R, A) f a", "[A] [R] (A -> R, A) -> R");
+    evaluate_check_type(
+        r"?A ?B ?R \(f, a, b):(A->B->R, A, B) f a b",
+        "[A] [B] [R] (A -> B -> R, A, B) -> R",
+    );
+
+    evaluate_check_type(r"?T<bool \x:T x.\x:bool x", "[T <bool] T -> bool");
+    type_check_failure(r"?T ?R   \t:T \f:T -> R (t, f t) .\x:(R, R) x");
+    evaluate_success(r"  ?T ?R>T \t:T \f:T -> R (t, f t) .\x:(R, R) x");
+
+    evaluate_check_type(r"?A (?B (?C \x:C x)[B])[bool]", "[A] bool -> bool");
+    evaluate_check_type(r"?A (?B (?C \x:A x)[B])[bool]", "[A] A -> A");
+
+    evaluate_check_type(
+        r"match enum {a:(),b:()} {
+            a\():() ?A<bool \a:A (a, true),
+            b\():() ?B>bool \b:B (b, false),
+        }",
+        "enum {a: (), b: ()} -> [A <bool >bool] A -> (A, bool)",
+    );
 }
