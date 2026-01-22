@@ -126,7 +126,7 @@ impl<'i> Validate<'i> for ast::Term<'i> {
                 enum_type.validate(ctx)?,
                 check_unique_labels(arms)
                     .map_ok(|(l, t)| t.validate(ctx).map(|t| (l, t)))
-                    .flatten_ok()
+                    .map(Result::flatten)
                     .try_collect()?,
             ),
             ast::RawTerm::Tuple(elements) => {

@@ -304,6 +304,8 @@ fn enums() {
         )",
         r"enum enum { b:bool } b false",
     );
+
+    validate_failure("match enum{} { a notfound }");
 }
 
 #[test]
