@@ -260,14 +260,12 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                 arg: arg_term,
             } => {
                 let check_type = check_type.take();
-                let check_func = check_type.map(|check_type| {
-                    ctx.intern(Type::Arr {
-                        arg: ctx.intern(Type::Never),
-                        result: check_type,
-                    })
+                let check_func = ctx.intern(Type::Arr {
+                    arg: ctx.intern(Type::Never),
+                    result: check_type.unwrap_or_else(|| ctx.intern(Type::Any)),
                 });
 
-                let (func_term, func) = func_term.type_check(check_func, ctx)?;
+                let (func_term, func) = func_term.type_check(Some(check_func), ctx)?;
 
                 let Type::Arr {
                     arg: func_arg,
@@ -529,14 +527,12 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                                 ));
                             };
 
-                            let check_func = check_result.map(|check_result| {
-                                ctx.intern(Type::Arr {
-                                    arg: variant,
-                                    result: check_result,
-                                })
+                            let check_func = ctx.intern(Type::Arr {
+                                arg: variant,
+                                result: check_result.unwrap_or_else(|| ctx.intern(Type::Any)),
                             });
 
-                            let (func_term, func) = func_term.type_check(check_func, ctx)?;
+                            let (func_term, func) = func_term.type_check(Some(check_func), ctx)?;
 
                             let Type::Arr {
                                 arg: func_arg,
@@ -574,7 +570,13 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     let (arms, variants, results): (HashMap<_, _>, _, Vec<_>) = arms
                         .iter()
                         .map(|(label, func_term)| -> Result<_, TypeCheckError> {
-                            let (func_term, func) = func_term.type_check(None, ctx)?;
+                            let (func_term, func) = func_term.type_check(
+                                Some(ctx.intern(Type::Arr {
+                                    arg: ctx.intern(Type::Never),
+                                    result: ctx.intern(Type::Any),
+                                })),
+                                ctx,
+                            )?;
 
                             let Type::Arr {
                                 arg: func_arg,
