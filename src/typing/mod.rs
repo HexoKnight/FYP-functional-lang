@@ -419,7 +419,7 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
             uir::RawTerm::Enum(arg, label) => {
                 let arg = arg.eval(ctx)?;
 
-                if let Some(check_type) = check_type.take() {
+                let (check_arg, check_enum) = if let Some(check_type) = check_type.take() {
                     let Type::Arr {
                         arg: check_arg,
                         result: check_enum,
@@ -431,7 +431,20 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                             check_type.display(ctx)?
                         ));
                     };
-                    let Type::Enum(check_variants) = check_enum.upper_concrete(ctx)? else {
+                    (
+                        check_arg.upper_concrete(ctx)?.not_never(),
+                        check_enum.upper_concrete(ctx)?.not_any(),
+                    )
+                } else {
+                    (None, None)
+                };
+
+                if let (Some(arg_type), Some(check_arg)) = (arg, check_arg) {
+                    check_subtype(arg_type, check_arg, ctx)?;
+                }
+
+                if let Some(check_enum) = check_enum {
+                    let Type::Enum(check_variants) = check_enum else {
                         return Err(format!(
                             "expected a function that returns: {}\n\
                             found an enum constructor (a function that returns an enum)",
@@ -445,10 +458,6 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                             check_enum.display(ctx)?
                         ));
                     };
-
-                    if let Some(arg) = arg {
-                        check_subtype(arg, check_arg, ctx)?;
-                    }
 
                     let result = ctx.intern(Type::Enum(
                         std::iter::once((*label, *check_variant_type)).collect(),
