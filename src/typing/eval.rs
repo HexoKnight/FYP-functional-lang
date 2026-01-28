@@ -4,7 +4,7 @@ use crate::{
     common::WithInfo,
     reprs::untyped_ir as uir,
     typing::{
-        Context, InternedType, TypeCheckError, check_subtype, prepend,
+        Context, InternedType, TypeCheckError, expect_type, prepend,
         ty::{TyBounds, Type},
     },
 };
@@ -68,7 +68,8 @@ impl<'i: 'a, 'a> TyEval<'i, 'a> for uir::TyBounds<'i> {
         let upper = upper.as_ref().map(|ty| ty.eval(ctx)).transpose()?;
         let lower = lower.as_ref().map(|ty| ty.eval(ctx)).transpose()?;
         if let (Some(upper), Some(lower)) = (upper, lower) {
-            check_subtype(upper, lower, ctx).map_err(prepend(
+            // technically we don't really expect either but this is close enough
+            expect_type(upper, lower, true, ctx).map_err(prepend(
                 || "type bound error: upper bound must be supertype of lower bound",
             ))?;
         }

@@ -1,4 +1,4 @@
-use itertools::zip_eq;
+use itertools::{Itertools, zip_eq};
 
 use crate::typing::{
     Context, InternedType, TypeCheckError, prepend, try_prepend,
@@ -6,43 +6,68 @@ use crate::typing::{
     ty_eq,
 };
 
-// TODO: improve error messages by specifying which type is 'expected'
+fn maybe_swap<T>(a: T, b: T, swap: bool) -> (T, T) {
+    if swap { (b, a) } else { (a, b) }
+}
+
+/// Checks whether `found` can be used in place of `expected`.
+/// Returns the type that `found` would have if so.
+/// `subtype` determines whether `found` should be allowed to be a subtype
+/// of `expected` or vice versa.
+///
 /// # Errors
 /// returns Err when not subtype
-pub(super) fn check_subtype<'a>(
-    supertype: InternedType<'a>,
-    subtype: InternedType<'a>,
+pub(super) fn expect_type<'a>(
+    expected: InternedType<'a>,
+    found: InternedType<'a>,
+    subtype: bool,
     ctx: &Context<'a, '_>,
-) -> Result<(), TypeCheckError> {
-    if ty_eq(supertype, subtype) {
-        return Ok(());
+) -> Result<InternedType<'a>, TypeCheckError> {
+    if ty_eq(expected, found) {
+        return Ok(found);
     }
 
-    match (supertype, subtype) {
+    let relation = if subtype { "subtype" } else { "supertype" };
+
+    // whether order is swapped between (expected, found) and (super, sub)
+    // ie. swapped: (expected, found) == (sub, super)
+    //    !swapped: (expected, found) == (super, sub)
+    let swapped = !subtype;
+    fn super_sub_of<T>(expected: T, found: T, swapped: bool) -> (T, T) {
+        maybe_swap(expected, found, swapped)
+    }
+    fn exp_found_of<T>(sup: T, sub: T, swapped: bool) -> (T, T) {
+        maybe_swap(sup, sub, swapped)
+    }
+
+    match (expected, found, subtype) {
         (
             Type::TyAbs {
-                name: name_super,
-                bounds: bounds_super,
-                result: supertype,
+                name: name_expected,
+                bounds: bounds_expected,
+                result: expected,
             },
             Type::TyAbs {
-                name: name_sub,
-                bounds: bounds_sub,
-                result: subtype,
+                name: name_found,
+                bounds: bounds_found,
+                result: found,
             },
+            _,
         ) => {
             // subtype bounds must enclose supertype bounds
-            bounds_sub
-                .check_encloses(bounds_super, ctx)
+            TyBounds::expect_bounds(bounds_expected, bounds_found, subtype, ctx)
                 .map_err(prepend(|| {
                     "bounds of subtype type arg must enclose those of the supertype type arg:"
                         .to_string()
                 }))
                 .and_then(|()| {
-                    check_subtype(
-                        supertype,
+                    let (bounds_super, _) = super_sub_of(bounds_expected, bounds_found, swapped);
+                    expect_type(
+                        expected,
+                        found,
                         subtype,
-                        &ctx.push_ty_var(std::cmp::min(name_super, name_sub), *bounds_super),
+                        // we choose the narrower bounds
+                        &ctx.push_ty_var(std::cmp::min(name_expected, name_found), *bounds_super),
                     )
                 })
         }
@@ -50,131 +75,207 @@ pub(super) fn check_subtype<'a>(
             Type::TyAbs {
                 name,
                 bounds,
-                result: supertype,
+                result: expected,
             },
-            subtype,
-        ) => check_subtype(supertype, subtype, &ctx.push_ty_var(name, *bounds)),
+            found,
+            _,
+            // TODO: this is wrong
+        ) => expect_type(expected, found, subtype, &ctx.push_ty_var(name, *bounds)),
         (
-            supertype,
+            expected,
             Type::TyAbs {
                 name,
                 bounds,
-                result: subtype,
+                result: found,
             },
-        ) => check_subtype(supertype, subtype, &ctx.push_ty_var(name, *bounds)),
+            _,
+            // TODO: this is wrong
+        ) => expect_type(expected, found, subtype, &ctx.push_ty_var(name, *bounds)),
         // covered by ty_eq above but included regardless
-        (Type::TyVar(level_super), Type::TyVar(level_sub)) if level_super == level_sub => Ok(()),
-        (Type::TyVar(level), subtype) => {
+        (Type::TyVar(level_expected), Type::TyVar(level_found), _)
+            if level_expected == level_found =>
+        {
+            Ok(found)
+        }
+        (Type::TyVar(level_expected), found, _) => {
             // if the lower bound doesn't exist (ie. it is unbounded below), it is equivalent to
             // having a lower bound of the bottom type
-            let (_, supertype_bounds) = ctx.get_ty_var_unwrap(*level)?;
-            let lower = supertype_bounds
+            let (_, bounds_expected) = ctx.get_ty_var_unwrap(*level_expected)?;
+            let lower_expected = bounds_expected
                 .lower
                 .unwrap_or_else(|| ctx.intern(Type::Never));
             // a type is guaranteed to be a subtype of the instantiated type iff it is a
             // subtype of the lower bound (due to the transitivity of subtyping)
-            check_subtype(lower, subtype, ctx).map_err(try_prepend(|| {
+            expect_type(lower_expected, found, subtype, ctx).map_err(try_prepend(|| {
                 Ok(format!(
                     "subtyping must be guaranteed for all possible instantiations of type var: {}\n\
                     for example, one such instantiation is: {}",
-                    supertype.display(ctx)?,
-                    lower.display(ctx)?
+                    expected.display(ctx)?,
+                    lower_expected.display(ctx)?
                 ))
             }))
         }
-        (supertype, Type::TyVar(level)) => {
+        (expected, Type::TyVar(level_found), _) => {
             // if the lower bound doesn't exist (ie. it is unbounded below), it is equivalent to
             // having a lower bound of the bottom type
-            let (_, subtype_bounds) = ctx.get_ty_var_unwrap(*level)?;
-            let upper = subtype_bounds
-                .upper
-                .unwrap_or_else(|| ctx.intern(Type::Any));
+            let (_, bounds_found) = ctx.get_ty_var_unwrap(*level_found)?;
+            let upper_found = bounds_found.upper.unwrap_or_else(|| ctx.intern(Type::Any));
             // a type is guaranteed to be a supertype of the instantiated type iff it is a
             // supertype of the upper bound (due to the transitivity of subtyping)
-            check_subtype(supertype, upper, ctx).map_err(try_prepend(|| {
+            expect_type(expected, upper_found, subtype, ctx).map_err(try_prepend(|| {
                 Ok(format!(
                     "subtyping must be guaranteed for all possible instantiations of type var: {}\n\
                     for example, one such instantiation is: {}",
-                    supertype.display(ctx)?,
-                    upper.display(ctx)?
+                    found.display(ctx)?,
+                    upper_found.display(ctx)?
                 ))
             }))
         }
         (
             Type::Arr {
-                arg: arg_super,
-                result: res_super,
+                arg: arg_expected,
+                result: res_expected,
             },
             Type::Arr {
-                arg: arg_sub,
-                result: res_sub,
+                arg: arg_found,
+                result: res_found,
             },
-        ) => {
-            check_subtype(arg_sub, arg_super, ctx)?;
-            check_subtype(res_super, res_sub, ctx)
+            _,
+            // no try block :(
+        ) => (|| {
+            Ok(ctx.intern(Type::Arr {
+                arg: expect_type(arg_expected, arg_found, !subtype, ctx)?,
+                result: expect_type(res_expected, res_found, subtype, ctx)?,
+            }))
+        })(),
+        (Type::Enum(variants_expected), Type::Enum(variants_found), _) => {
+            let (variants_super, variants_sub) =
+                super_sub_of(variants_expected, variants_found, swapped);
+            variants_sub
+                .0
+                .iter()
+                // for each variant of the subtype:
+                .map(|(l, ty_sub)| {
+                    // check that the supertype also has it...
+                    if let Some(ty_super) = variants_super.0.get(l) {
+                        let (ty_expected, ty_found) = exp_found_of(ty_super, ty_sub, swapped);
+                        // and that the variant types maintain the same subtyping relationship
+                        Ok((*l, expect_type(ty_expected, ty_found, subtype, ctx)?))
+                    } else {
+                        Err(format!(
+                            "label '{l}' missing from supertype:\n\
+                            | {}",
+                            super_sub_of(expected, found, swapped).0.display(ctx)?
+                        ))
+                    }
+                })
+                .try_collect()
+                .map(|variants| ctx.intern(Type::Enum(variants)))
         }
-        (Type::Enum(variants_super), Type::Enum(variants_sub)) => variants_sub
-            .0
-            .iter()
-            // for each variant of the subtype:
-            .try_for_each(|(l, ty_sub)| {
-                // check that the supertype also has it...
-                let Some(ty_super) = variants_super.0.get(l) else {
-                    return Err(format!(
-                        "subtyping error: label '{l}' missing from supertype",
-                    ));
-                };
-                // and that the variant types maintain the same subtyping relationship
-                check_subtype(ty_super, ty_sub, ctx)
-            }),
-        (Type::Tuple(elems_super), Type::Tuple(elems_sub)) => {
-            if elems_super.len() != elems_sub.len() {
-                return Err("subtyping error: tuples have different lengths".to_string());
+        (Type::Tuple(elems_expected), Type::Tuple(elems_found), _) => {
+            let len_expected = elems_expected.len();
+            let len_found = elems_found.len();
+            if len_expected == len_found {
+                zip_eq(elems_expected, elems_found)
+                    .map(|(elem_expected, elem_found)| {
+                        expect_type(elem_expected, elem_found, subtype, ctx)
+                    })
+                    .try_collect()
+                    .map(|elems| ctx.intern(Type::Tuple(elems)))
+            } else {
+                Err(format!(
+                    "tuples have different lengths\n\
+                    expected tuple with length {len_expected}: {}\n\
+                    found    tuple with length {len_found   }: {}",
+                    expected.display(ctx)?,
+                    found.display(ctx)?
+                ))
             }
-            zip_eq(elems_super, elems_sub)
-                .try_for_each(|(elem_super, elem_sub)| check_subtype(elem_super, elem_sub, ctx))
         }
-        (Type::Bool, Type::Bool) | (Type::Any, _) | (_, Type::Never) => Ok(()),
-        (_, Type::Any) => Err("_ is the any type: \
+        (Type::Bool, Type::Bool, _)
+        | (Type::Any, _, true)
+        | (_, Type::Any, false)
+        | (_, Type::Never, true)
+        | (Type::Never, _, false) => Ok(found),
+        (_, Type::Any, true) | (Type::Any, _, false) => Err("_ is the any type: \
             it has no supertypes bar itself and cannot be constructed (directly)"
             .to_string()),
-        (Type::Never, _) => Err("! is the never type: \
+        (Type::Never, _, true) | (_, Type::Never, false) => Err("! is the never type: \
             it has no subtypes bar itself and cannot be constructed"
             .to_string()),
         // not using _ to avoid catching more cases than intended
-        (Type::Arr { .. } | Type::Enum(..) | Type::Tuple(..) | Type::Bool, _) => {
-            Err("subtyping error: types are incompatible".to_string())
+        (Type::Arr { .. } | Type::Enum(..) | Type::Tuple(..) | Type::Bool, _, _) => {
+            Err("types are incompatible".to_string())
         }
     }
     .map_err(try_prepend(|| {
         Ok(format!(
-            "subtyping error:\n\
-            {}\n\
-            is not a supertype of:\n\
-            {}",
-            supertype.display(ctx)?,
-            subtype.display(ctx)?
+            "expected (or a {relation} of):\n\
+            |   {}\n\
+            found:\n\
+            |   {}",
+            expected.display(ctx)?,
+            found.display(ctx)?
         ))
     }))
 }
 
 impl<'a> TyBounds<'a> {
-    pub(super) fn check_encloses(
-        &self,
-        inner: &Self,
+    /// Checks whether `found` can be used in place of `expected`.
+    /// `encloses` determines whether `found` should be allowed to enclose
+    /// `expected` or vice versa.
+    ///
+    /// NB. encloses ~= subtype
+    pub(super) fn expect_bounds(
+        expected: &Self,
+        found: &Self,
+        encloses: bool,
         ctx: &Context<'a, '_>,
     ) -> Result<(), TypeCheckError> {
-        if let Some(upper_self) = self.upper {
-            let upper_inner = inner.upper.unwrap_or_else(|| ctx.intern(Type::Any));
-            check_subtype(upper_self, upper_inner, ctx).map_err(prepend(|| {
-                "outer upper bound must be a supertype of inner upper bound".to_string()
-            }))?;
+        // whether order is swapped between (expected, self) and (inner, outer)
+        // ie. swapped: (expected, self) == (outer, inner)
+        //    !swapped: (expected, self) == (inner, outer)
+        let swapped = !encloses;
+        fn inner_outer_of<T>(expected: T, found: T, swapped: bool) -> (T, T) {
+            maybe_swap(expected, found, swapped)
+        }
+        fn exp_found_of<T>(inner: T, outer: T, swapped: bool) -> (T, T) {
+            maybe_swap(inner, outer, swapped)
         }
 
-        if let Some(lower_self) = self.lower {
+        let (inner, outer) = inner_outer_of(expected, found, swapped);
+
+        if let Some(upper_outer) = outer.upper {
+            let upper_inner = inner.upper.unwrap_or_else(|| ctx.intern(Type::Any));
+            let (upper_expected, upper_found) = exp_found_of(upper_inner, upper_outer, swapped);
+            expect_type(upper_expected, upper_found, !encloses, ctx).map_err(try_prepend(
+                || {
+                    Ok(format!(
+                        "expected upper bound (or {}):\n\
+                        {}\n\
+                        found upper bound:\n\
+                        {}",
+                        if encloses { "higher" } else { "lower" },
+                        upper_expected.display(ctx)?,
+                        upper_found.display(ctx)?
+                    ))
+                },
+            ))?;
+        }
+
+        if let Some(lower_outer) = outer.lower {
             let lower_inner = inner.lower.unwrap_or_else(|| ctx.intern(Type::Never));
-            check_subtype(lower_inner, lower_self, ctx).map_err(prepend(|| {
-                "outer lower bound must be a subtype of inner lower bound".to_string()
+            let (lower_expected, lower_found) = exp_found_of(lower_inner, lower_outer, swapped);
+            expect_type(lower_expected, lower_found, encloses, ctx).map_err(try_prepend(|| {
+                Ok(format!(
+                    "expected lower bound (or {}):\n\
+                    {}\n\
+                    found lower bound:\n\
+                    {}",
+                    if encloses { "lower" } else { "higher" },
+                    lower_expected.display(ctx)?,
+                    lower_found.display(ctx)?
+                ))
             }))?;
         }
         Ok(())

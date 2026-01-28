@@ -11,7 +11,7 @@ use crate::reprs::{
 };
 use crate::typing::eval::TyEval;
 use crate::typing::merge::join;
-use crate::typing::subtyping::check_subtype;
+use crate::typing::subtyping::expect_type;
 use crate::typing::ty::{TyBounds, TyDisplay};
 
 use self::context::{Context, ContextInner};
@@ -202,7 +202,7 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     };
 
                     if let Some(check_arg) = check_arg {
-                        check_subtype(arg, check_arg, ctx)?;
+                        expect_type(check_arg, arg, false, ctx)?;
                     }
 
                     let destructured_arg_types = arg.destructure(arg_structure, ctx)?;
@@ -290,18 +290,8 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
 
                 let (arg_term, arg) = arg_term.type_check(Some(func_arg), ctx)?;
 
-                check_subtype(
-                    ctx.intern(Type::Arr {
-                        arg,
-                        result: ctx.intern(Type::Any),
-                    }),
-                    func,
-                    ctx,
-                )
-                .map_err(|mut e| {
-                    e.insert_str(0, "error typing function application:\n");
-                    e
-                })?;
+                expect_type(func_arg, arg, true, ctx)
+                    .map_err(prepend(|| "incorrect argument type:"))?;
                 (
                     tir::RawTerm::App {
                         func: func_term,
@@ -327,16 +317,16 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                         ));
                     };
 
-                    bounds
-                        .check_encloses(check_bounds, ctx)
-                        .map_err(try_prepend(|| {
+                    TyBounds::expect_bounds(check_bounds, &bounds, true, ctx).map_err(
+                        try_prepend(|| {
                             Ok(format!(
                                 "expected bounds (or wider): {}\n\
                                 but found:                  {}",
                                 check_bounds.display(ctx)?,
                                 bounds.display(ctx)?
                             ))
-                        }))?;
+                        }),
+                    )?;
 
                     Some(*check_result)
                 } else {
@@ -386,11 +376,11 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     ));
                 };
                 if let Some(upper) = bounds.upper {
-                    check_subtype(upper, arg, ctx)
+                    expect_type(upper, arg, true, ctx)
                         .map_err(prepend(|| "unsatisfied type arg upper bound:\n"))?;
                 }
                 if let Some(lower) = bounds.lower {
-                    check_subtype(arg, lower, ctx)
+                    expect_type(lower, arg, false, ctx)
                         .map_err(prepend(|| "unsatisfied type arg lower bound:\n"))?;
                 }
                 let ty = result.substitute_ty_var(arg, ctx);
@@ -401,8 +391,8 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     format!("illegal failure: variable index not found: {index:?}\n")
                 })?;
 
-                if let Some(check_type) = check_type.take() {
-                    check_subtype(check_type, ty, ctx).map_err(try_prepend(|| {
+                let ty = if let Some(check_type) = check_type.take() {
+                    expect_type(check_type, ty, true, ctx).map_err(try_prepend(|| {
                         Ok(format!(
                             "expected: {}\n\
                             got:      {}",
@@ -410,7 +400,10 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                             ty.display(ctx)?,
                         ))
                     }))?;
-                }
+                    ty
+                } else {
+                    ty
+                };
 
                 (tir::RawTerm::Var(*index), ty)
             }
@@ -437,9 +430,11 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     (None, None)
                 };
 
-                if let (Some(arg_type), Some(check_arg)) = (arg, check_arg) {
-                    check_subtype(arg_type, check_arg, ctx)?;
-                }
+                let arg = if let (Some(arg), Some(check_arg)) = (arg, check_arg) {
+                    Some(expect_type(check_arg, arg, false, ctx)?)
+                } else {
+                    arg
+                };
 
                 if let Some(check_enum) = check_enum {
                     let Type::Enum(check_variants) = check_enum else {
@@ -461,7 +456,7 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                         std::iter::once((*label, *check_variant_type)).collect(),
                     ));
 
-                    check_subtype(check_enum, result, ctx)
+                    let result = expect_type(check_enum, result, true, ctx)
                         .map_err(prepend(|| "incorrect enum result type:\n"))?;
 
                     (
@@ -487,7 +482,11 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                 let enum_type = enum_type.eval(ctx)?;
 
                 let (enum_type, check_result) = if let Some(check_type) = check_type.take() {
-                    let Type::Arr { arg, result } = check_type else {
+                    let Type::Arr {
+                        arg: check_arg,
+                        result: check_result,
+                    } = check_type
+                    else {
                         return Err(format!(
                             "expected: {}\n\
                             found a match expression (a function)",
@@ -496,13 +495,13 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     };
 
                     if let Some(enum_type) = enum_type {
-                        check_subtype(enum_type, arg, ctx)
-                            .map_err(prepend(|| "incorrect match arm type:\n"))?;
+                        expect_type(check_arg, enum_type, false, ctx)
+                            .map_err(prepend(|| "incorrect match arg type:\n"))?;
                     }
 
                     (
-                        enum_type.or(arg.upper_concrete(ctx)?.not_never()),
-                        result.upper_concrete(ctx)?.not_any(),
+                        enum_type.or(check_arg.upper_concrete(ctx)?.not_never()),
+                        check_result.upper_concrete(ctx)?.not_any(),
                     )
                 } else {
                     (enum_type, None)
@@ -544,7 +543,7 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                                     func = func.display(ctx)?
                                 ));
                             };
-                            check_subtype(func_arg, variant, ctx)
+                            expect_type(variant, func_arg, false, ctx)
                                 .map_err(prepend(|| "incorrect match arm type:\n"))?;
 
                             Ok(Some(((*label, func_term), *func_result)))
@@ -641,16 +640,18 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
         };
 
         // if we don't explicity check above (using `.take()`), we do a basic subtype check here
-        if let Some(check_type) = check_type.take() {
-            check_subtype(check_type, ty, ctx).map_err(try_prepend(|| {
+        let ty = if let Some(check_type) = check_type.take() {
+            expect_type(check_type, ty, true, ctx).map_err(try_prepend(|| {
                 Ok(format!(
                     "expected: {}\n\
                     got:      {}",
                     check_type.display(ctx)?,
                     ty.display(ctx)?,
                 ))
-            }))?;
-        }
+            }))?
+        } else {
+            ty
+        };
 
         Ok((WithInfo(*info, term), ty))
     }

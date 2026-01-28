@@ -3,8 +3,7 @@ use itertools::{Itertools, zip_eq};
 use crate::{
     common::{hashmap_intersection, hashmap_union},
     typing::{
-        Context, InternedType, TypeCheckError,
-        subtyping::check_subtype,
+        Context, InternedType, TypeCheckError, expect_type,
         ty::{TyBounds, TyDisplay, Type},
         ty_eq,
     },
@@ -36,10 +35,10 @@ fn merge<'a>(
             return Ok(ty1);
         }
         // TODO(proper errors): catch specifically subtyping errors
-        if check_subtype(ty1, ty2, ctx).is_ok() {
+        if expect_type(ty1, ty2, true, ctx).is_ok() {
             return Ok(ty1);
         }
-        if check_subtype(ty2, ty1, ctx).is_ok() {
+        if expect_type(ty1, ty2, false, ctx).is_ok() {
             return Ok(ty2);
         }
 
@@ -184,11 +183,11 @@ fn merge<'a>(
         let ty = ctx.intern(ty);
 
         if join {
-            debug_assert_eq!(check_subtype(ty, ty1, ctx), Ok(()));
-            debug_assert_eq!(check_subtype(ty, ty2, ctx), Ok(()));
+            debug_assert_eq!(expect_type(ty, ty1, true, ctx).map(|_| ()), Ok(()));
+            debug_assert_eq!(expect_type(ty, ty2, true, ctx).map(|_| ()), Ok(()));
         } else {
-            debug_assert_eq!(check_subtype(ty1, ty, ctx), Ok(()));
-            debug_assert_eq!(check_subtype(ty2, ty, ctx), Ok(()));
+            debug_assert_eq!(expect_type(ty, ty1, false, ctx).map(|_| ()), Ok(()));
+            debug_assert_eq!(expect_type(ty, ty2, false, ctx).map(|_| ()), Ok(()));
         }
 
         Ok(ty)
