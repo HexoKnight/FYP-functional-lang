@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
 
 use itertools::{Itertools, zip_eq};
 use typed_arena::Arena;
@@ -370,7 +371,7 @@ impl<'i: 'a, 'a> TypeCheck<'i, 'a> for uir::Term<'i> {
                     expect_type(lower, arg, false, ctx)
                         .map_err(prepend(|| "unsatisfied type arg lower bound:\n"))?;
                 }
-                let ty = result.substitute_ty_var(arg, ctx);
+                let ty = result.substitute_ty_var(ctx.next_ty_var_level(), arg, ctx);
                 (abs_term, ty)
             }
             uir::RawTerm::Var(index) => {
@@ -688,12 +689,11 @@ impl<'a> Type<'a> {
         Ok(buffer.into_iter())
     }
 
-    fn substitute_ty_var_rec(
+    fn try_map_ty_vars<E>(
         &'a self,
-        depth: Lvl,
-        ty: &'a Self,
-        ctx: &Context<'a, '_>,
-    ) -> &'a Self {
+        f: &mut impl FnMut(Lvl) -> Result<&'a Self, E>,
+        ctx: &impl TyArenaContext<'a>,
+    ) -> Result<&'a Self, E> {
         let ty = match self {
             Type::TyAbs {
                 name,
@@ -702,45 +702,67 @@ impl<'a> Type<'a> {
             } => Type::TyAbs {
                 name,
                 bounds: TyBounds {
-                    upper: upper.map(|t| t.substitute_ty_var_rec(depth, ty, ctx)),
-                    lower: lower.map(|t| t.substitute_ty_var_rec(depth, ty, ctx)),
+                    upper: upper.map(|t| t.try_map_ty_vars(f, ctx)).transpose()?,
+                    lower: lower.map(|t| t.try_map_ty_vars(f, ctx)).transpose()?,
                 },
-                result: result.substitute_ty_var_rec(depth, ty, ctx),
+                result: result.try_map_ty_vars(f, ctx)?,
             },
-            Type::TyVar(level) if *level == depth => return ty,
-            Type::TyVar(level) => match level.shallower() {
-                // deeper than replaced but not equal (due to prev arm)
-                Some(shallower) if level.deeper_than(depth) => Type::TyVar(shallower),
-                // either:
-                // - shallowest so could not be strictly deeper
-                // - not deeper
-                None | Some(_) => return self,
-            },
+            Type::TyVar(level) => return f(*level),
             Type::Arr { arg, result } => Type::Arr {
-                arg: arg.substitute_ty_var_rec(depth, ty, ctx),
-                result: result.substitute_ty_var_rec(depth, ty, ctx),
+                arg: arg.try_map_ty_vars(f, ctx)?,
+                result: result.try_map_ty_vars(f, ctx)?,
             },
             Type::Enum(variants) => Type::Enum(
                 variants
                     .0
                     .iter()
-                    .map(|(l, t)| (*l, t.substitute_ty_var_rec(depth, ty, ctx)))
-                    .collect(),
+                    .map(|(l, t)| t.try_map_ty_vars(f, ctx).map(|t| (*l, t)))
+                    .try_collect()?,
             ),
             Type::Tuple(elems) => Type::Tuple(
                 elems
                     .iter()
-                    .map(|e| e.substitute_ty_var_rec(depth, ty, ctx))
-                    .collect(),
+                    .map(|e| e.try_map_ty_vars(f, ctx))
+                    .try_collect()?,
             ),
-            Type::Bool | Type::Any | Type::Never => return self,
+            Type::Bool | Type::Any | Type::Never => return Ok(self),
         };
 
-        ctx.intern(ty)
+        Ok(ctx.intern(ty))
     }
 
-    fn substitute_ty_var(&'a self, ty: &'a Self, ctx: &Context<'a, '_>) -> &'a Self {
-        self.substitute_ty_var_rec(ctx.next_ty_var_level(), ty, ctx)
+    fn map_ty_vars(
+        &'a self,
+        mut f: impl FnMut(Lvl) -> &'a Self,
+        ctx: &impl TyArenaContext<'a>,
+    ) -> &'a Self {
+        let Ok(res) = self.try_map_ty_vars(&mut |l| Ok::<_, Infallible>(f(l)), ctx);
+        res
+    }
+
+    fn substitute_ty_var(
+        &'a self,
+        depth: Lvl,
+        ty: &'a Self,
+        ctx: &impl TyArenaContext<'a>,
+    ) -> &'a Self {
+        self.map_ty_vars(
+            |level| {
+                if level == depth {
+                    return ty;
+                }
+                let new_level = match level.shallower() {
+                    // deeper than replaced but not equal (due to prev arm)
+                    Some(shallower) if level.deeper_than(depth) => shallower,
+                    // either:
+                    // - shallowest so could not be strictly deeper
+                    // - not deeper
+                    None | Some(_) => level,
+                };
+                ctx.intern(Type::TyVar(new_level))
+            },
+            ctx,
+        )
     }
 
     // TODO: maybe ensure type safety by Type::Concrete(ConcreteType::{Arr, Enum, ...})
