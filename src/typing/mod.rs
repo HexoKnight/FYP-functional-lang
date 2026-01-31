@@ -9,54 +9,37 @@ use crate::reprs::{
     typed_ir::{self as tir},
     untyped_ir as uir,
 };
+use crate::typing::context::{TyArenaContext, TyVarContext};
 use crate::typing::eval::TyEval;
 use crate::typing::merge::join;
 use crate::typing::subtyping::expect_type;
 use crate::typing::ty::{TyBounds, TyDisplay};
 
-use self::context::{Context, ContextInner};
+use self::context::ContextInner;
 use self::ty::Type;
+use self::typing_context::Context;
 
+mod context;
 mod eval;
 mod merge;
 mod subtyping;
 mod ty;
 
-mod context {
-    use typed_arena::Arena;
-
+mod typing_context {
     use crate::{
-        intern::InternedArena,
         reprs::common::{Idx, Lvl},
-        typing::ty::TyBounds,
+        typing::{
+            context::{ContextInner, Stack, TyArenaContext, TyVarContext},
+            ty::TyBounds,
+        },
     };
 
-    use super::{InternedType, TypeCheckError, ty::Type};
-
-    // doesn't suffer from the same dropck issues as self references
-    // do not (currently) pass through this type
-    /// Cheaply cloneable (hopefully) append-only stack
-    type Stack<T> = Vec<T>;
-
-    pub(super) struct ContextInner<'a> {
-        ty_arena: InternedArena<'a, Type<'a>>,
-    }
-    impl<'a> ContextInner<'a> {
-        pub(super) fn new(arena: &'a Arena<Type<'a>>) -> Self {
-            Self {
-                ty_arena: InternedArena::with_arena(arena),
-            }
-        }
-
-        fn intern(&self, var: Type<'a>) -> InternedType<'a> {
-            self.ty_arena.intern(var)
-        }
-    }
+    use super::{InternedType, ty::Type};
 
     #[must_use]
     #[derive(Clone)]
     pub(super) struct Context<'a, 'inn> {
-        inner: &'inn ContextInner<'a>,
+        pub(super) inner: &'inn ContextInner<'a>,
         var_ty_stack: Stack<InternedType<'a>>,
         ty_var_stack: Stack<(&'a str, TyBounds<'a>)>,
     }
@@ -68,10 +51,6 @@ mod context {
                 var_ty_stack: Vec::new(),
                 ty_var_stack: Vec::new(),
             }
-        }
-
-        pub(super) fn intern<'s>(&'s self, var: Type<'a>) -> InternedType<'a> {
-            self.inner.intern(var)
         }
 
         pub(super) fn push_var_tys(
@@ -86,27 +65,35 @@ mod context {
         pub(super) fn get_var_ty(&self, index: Idx) -> Option<&'a Type<'a>> {
             index.get(&self.var_ty_stack).copied()
         }
+    }
 
-        pub(super) fn push_ty_var(&self, ty_var_name: &'a str, ty_var: TyBounds<'a>) -> Self {
+    impl<'a, 'inn> TyArenaContext<'a> for Context<'a, 'inn> {
+        type Inner = &'inn ContextInner<'a>;
+
+        fn get_inner(&self) -> &'inn ContextInner<'a> {
+            self.inner
+        }
+    }
+
+    impl<'a> TyVarContext<'a> for Context<'a, '_> {
+        type TyVar = TyBounds<'a>;
+
+        fn push_ty_var(&self, ty_var_name: &'a str, ty_var: TyBounds<'a>) -> Self {
             let mut new = self.clone();
             new.ty_var_stack.push((ty_var_name, ty_var));
             new
         }
 
-        pub(super) fn get_ty_var(&self, level: Lvl) -> Option<(&'a str, TyBounds<'a>)> {
+        fn get_ty_var(&self, level: Lvl) -> Option<(&'a str, TyBounds<'a>)> {
             level.get(&self.ty_var_stack).copied()
         }
 
-        pub(super) fn get_ty_var_unwrap(
-            &self,
-            level: Lvl,
-        ) -> Result<(&'a str, TyBounds<'a>), TypeCheckError> {
-            self.get_ty_var(level)
-                .ok_or_else(|| format!("illegal failure: type variable level not found: {level:?}"))
+        fn next_ty_var_level(&self) -> Lvl {
+            Lvl::get_depth(&self.ty_var_stack)
         }
 
-        pub(super) fn next_ty_var_level(&self) -> Lvl {
-            Lvl::get_depth(&self.ty_var_stack)
+        fn get_ty_vars(&self) -> impl Iterator<Item = (&'a str, TyBounds<'a>)> {
+            self.ty_var_stack.iter().copied()
         }
     }
 }

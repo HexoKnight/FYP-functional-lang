@@ -4,7 +4,9 @@ use crate::{
     common::WithInfo,
     reprs::untyped_ir as uir,
     typing::{
-        Context, InternedType, TypeCheckError, expect_type, prepend,
+        Context, InternedType, TypeCheckError,
+        context::{TyArenaContext, TyVarContext},
+        expect_type, prepend,
         ty::{TyBounds, Type},
     },
 };

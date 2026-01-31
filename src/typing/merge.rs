@@ -3,11 +3,21 @@ use itertools::{Itertools, zip_eq};
 use crate::{
     common::{hashmap_intersection, hashmap_union},
     typing::{
-        Context, InternedType, TypeCheckError, expect_type,
+        InternedType, TypeCheckError,
+        context::{ContextInner, TyArenaContext, TyVarContext},
+        subtyping::expect_type,
         ty::{TyBounds, TyDisplay, Type},
         ty_eq,
     },
 };
+
+// unfortunately no trait aliases
+macro_rules! ctx {
+    () => {
+         impl TyArenaContext<'a, Inner = &'inn ContextInner<'a>>
+            + TyVarContext<'a, TyVar = TyBounds<'a>>
+    };
+}
 
 /// `join` specifies whether joining or meeting types.
 ///
@@ -19,16 +29,16 @@ use crate::{
 ///
 /// # Errors
 /// see docs for [`join`] and [`meet`]
-fn merge<'a>(
+fn merge<'a: 'inn, 'inn>(
     types: impl IntoIterator<Item = InternedType<'a>>,
     join: bool,
-    ctx: &Context<'a, '_>,
+    ctx: &ctx!(),
 ) -> Result<InternedType<'a>, TypeCheckError> {
-    fn merge2<'a>(
+    fn merge2<'a: 'inn, 'inn>(
         ty1: InternedType<'a>,
         ty2: InternedType<'a>,
         join: bool,
-        ctx: &Context<'a, '_>,
+        ctx: &ctx!(),
     ) -> Result<InternedType<'a>, TypeCheckError> {
         // these checks are meant as optimisations, and shouldn't be necessary for correctness
         if ty_eq(ty1, ty2) {
@@ -217,9 +227,9 @@ fn merge<'a>(
 /// The top/any type is the supertype of all types so it could be returned instead of an error
 /// but we choose an error in cases where the user probably wouldn't want to lose all type
 /// information (they can manually coerce their types to any beforehand if they so wish).
-pub(super) fn join<'a>(
+pub(super) fn join<'a: 'inn, 'inn>(
     types: impl IntoIterator<Item = InternedType<'a>>,
-    ctx: &Context<'a, '_>,
+    ctx: &ctx!(),
 ) -> Result<InternedType<'a>, TypeCheckError> {
     merge(types, true, ctx)
 }
@@ -238,9 +248,9 @@ pub(super) fn join<'a>(
 /// but we choose an error in cases where the user probably wouldn't want to lose all type
 /// information (they can manually coerce their types to never beforehand if they so wish).
 #[allow(dead_code)]
-pub(super) fn meet<'a>(
+pub(super) fn meet<'a: 'inn, 'inn>(
     types: impl IntoIterator<Item = InternedType<'a>>,
-    ctx: &Context<'a, '_>,
+    ctx: &ctx!(),
 ) -> Result<InternedType<'a>, TypeCheckError> {
     merge(types, false, ctx)
 }

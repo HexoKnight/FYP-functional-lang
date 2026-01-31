@@ -3,7 +3,7 @@ use itertools::Itertools;
 use crate::{
     hashed_hashmap::HashedHashMap,
     reprs::common::{EnumLabel, Lvl},
-    typing::{Context, TypeCheckError},
+    typing::{TyVarContext, TypeCheckError, context::TyVarStack},
 };
 
 type TypeRef<'ctx> = &'ctx Type<'ctx>;
@@ -42,19 +42,27 @@ pub struct TyBounds<'ctx> {
 }
 
 pub trait TyDisplay<'ctx> {
-    fn write_display(&self, ctx: &Context<'ctx, '_>, w: &mut String) -> Result<(), TypeCheckError>;
+    fn write_display(
+        &self,
+        ctx: &TyVarStack<'ctx, ()>,
+        w: &mut String,
+    ) -> Result<(), TypeCheckError>;
 
-    fn display(&self, ctx: &Context<'ctx, '_>) -> Result<String, TypeCheckError> {
+    fn display(&self, ctx: impl Into<TyVarStack<'ctx, ()>>) -> Result<String, TypeCheckError> {
         let mut string = String::new();
-        self.write_display(ctx, &mut string)?;
+        self.write_display(&ctx.into(), &mut string)?;
         Ok(string)
     }
 
-    fn is_empty(&self, ctx: &Context<'ctx, '_>) -> Result<bool, TypeCheckError>;
+    fn is_empty(&self, ctx: &TyVarStack<'ctx, ()>) -> Result<bool, TypeCheckError>;
 }
 
 impl<'ctx> TyDisplay<'ctx> for Type<'ctx> {
-    fn write_display(&self, ctx: &Context<'ctx, '_>, w: &mut String) -> Result<(), TypeCheckError> {
+    fn write_display(
+        &self,
+        ctx: &TyVarStack<'ctx, ()>,
+        w: &mut String,
+    ) -> Result<(), TypeCheckError> {
         match self {
             Type::TyAbs {
                 name,
@@ -68,7 +76,7 @@ impl<'ctx> TyDisplay<'ctx> for Type<'ctx> {
                     bounds.write_display(ctx, w)?;
                 }
                 w.push_str("] ");
-                result.write_display(&ctx.push_ty_var(name, *bounds), w)?;
+                result.write_display(&ctx.push_ty_var(name, ()), w)?;
             }
             Type::TyVar(level) => {
                 w.push_str(ctx.get_ty_var_unwrap(*level)?.0);
@@ -125,13 +133,17 @@ impl<'ctx> TyDisplay<'ctx> for Type<'ctx> {
         Ok(())
     }
 
-    fn is_empty(&self, _ctx: &Context<'ctx, '_>) -> Result<bool, TypeCheckError> {
+    fn is_empty(&self, _ctx: &TyVarStack<'ctx, ()>) -> Result<bool, TypeCheckError> {
         Ok(false)
     }
 }
 
 impl<'ctx> TyDisplay<'ctx> for TyBounds<'ctx> {
-    fn write_display(&self, ctx: &Context<'ctx, '_>, w: &mut String) -> Result<(), TypeCheckError> {
+    fn write_display(
+        &self,
+        ctx: &TyVarStack<'ctx, ()>,
+        w: &mut String,
+    ) -> Result<(), TypeCheckError> {
         let Self { upper, lower } = self;
 
         if let Some(upper) = upper {
@@ -148,7 +160,7 @@ impl<'ctx> TyDisplay<'ctx> for TyBounds<'ctx> {
         Ok(())
     }
 
-    fn is_empty(&self, _ctx: &Context<'ctx, '_>) -> Result<bool, TypeCheckError> {
+    fn is_empty(&self, _ctx: &TyVarStack<'ctx, ()>) -> Result<bool, TypeCheckError> {
         let Self { upper, lower } = self;
 
         Ok(upper.is_none() && lower.is_none())

@@ -1,10 +1,20 @@
 use itertools::{Itertools, zip_eq};
 
 use crate::typing::{
-    Context, InternedType, TypeCheckError, prepend, try_prepend,
+    InternedType, TypeCheckError,
+    context::{ContextInner, TyArenaContext, TyVarContext},
+    prepend, try_prepend,
     ty::{TyBounds, TyDisplay, Type},
     ty_eq,
 };
+
+// unfortunately no trait aliases
+macro_rules! ctx {
+    () => {
+         impl TyArenaContext<'a, Inner = &'inn ContextInner<'a>>
+            + TyVarContext<'a, TyVar = TyBounds<'a>>
+    };
+}
 
 fn maybe_swap<T>(a: T, b: T, swap: bool) -> (T, T) {
     if swap { (b, a) } else { (a, b) }
@@ -17,11 +27,11 @@ fn maybe_swap<T>(a: T, b: T, swap: bool) -> (T, T) {
 ///
 /// # Errors
 /// returns Err when not subtype
-pub(super) fn expect_type<'a>(
+pub(super) fn expect_type<'a: 'inn, 'inn>(
     expected: InternedType<'a>,
     found: InternedType<'a>,
     subtype: bool,
-    ctx: &Context<'a, '_>,
+    ctx: &ctx!(),
 ) -> Result<InternedType<'a>, TypeCheckError> {
     if ty_eq(expected, found) {
         return Ok(found);
@@ -226,12 +236,15 @@ impl<'a> TyBounds<'a> {
     /// `expected` or vice versa.
     ///
     /// NB. encloses ~= subtype
-    pub(super) fn expect_bounds(
+    pub(super) fn expect_bounds<'inn>(
         expected: &Self,
         found: &Self,
         encloses: bool,
-        ctx: &Context<'a, '_>,
-    ) -> Result<(), TypeCheckError> {
+        ctx: &ctx!(),
+    ) -> Result<(), TypeCheckError>
+    where
+        'a: 'inn,
+    {
         // whether order is swapped between (expected, self) and (inner, outer)
         // ie. swapped: (expected, self) == (outer, inner)
         //    !swapped: (expected, self) == (inner, outer)
