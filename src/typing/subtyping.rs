@@ -510,12 +510,12 @@ fn expect_type_rec<'a>(
             Type::TyAbs {
                 name: name_expected,
                 bounds: bounds_expected,
-                result: expected,
+                result: result_expected,
             },
             Type::TyAbs {
                 name: name_found,
                 bounds: bounds_found,
-                result: found,
+                result: result_found,
             },
             _,
         ) => {
@@ -532,8 +532,8 @@ fn expect_type_rec<'a>(
                         (bounds_expected, ctx.exp_ctx())
                     };
                     expect_type_rec(
-                        expected,
-                        found,
+                        result_expected,
+                        result_found,
                         subtype,
                         infer_ty_args,
                         // we choose the narrower bounds
@@ -687,7 +687,7 @@ fn expect_type_rec<'a>(
         // not using _ to avoid catching more cases than intended
         (
             Type::TyAbs { .. } | Type::Arr { .. } | Type::Enum(..) | Type::Tuple(..) | Type::Bool,
-            _,
+            Type::Arr { .. } | Type::Enum(..) | Type::Tuple(..) | Type::Bool,
             _,
         ) => Err("types are incompatible".to_string()),
     }
