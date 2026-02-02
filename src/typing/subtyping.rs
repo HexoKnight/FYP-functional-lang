@@ -539,6 +539,13 @@ fn expect_type_rec<'a>(
                         // we choose the narrower bounds
                         &ctx.push_unbound_ty_var(name_expected, name_found, *bounds_super),
                     )
+                    .map(|result| {
+                        ctx.intern(Type::TyAbs {
+                            name: name_found,
+                            bounds: *bounds_super,
+                            result,
+                        })
+                    })
                     .map_err(try_prepend(|| {
                         Ok(format!(
                             "taking {} == {} with bounds: {}",
