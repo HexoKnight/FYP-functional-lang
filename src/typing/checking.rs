@@ -274,18 +274,30 @@ impl<'i: 'a, 'a, 'inn> TypeCheck<'i, 'a, 'inn> for uir::Term<'i> {
                     result: check_type.unwrap_or_else(|| ctx.intern(Type::Any)),
                 });
 
-                // try infer but fall back if it fails
-                let (func_term, func) =
-                    func_term
-                        .type_check(Some(check_func), true, ctx)
-                        .or_else(|e| {
-                            // TODO(errors): make this better :(
-                            if e.contains("failed to infer") {
-                                func_term.type_check(None, false, ctx)
-                            } else {
-                                Err(e)
+                trait TypeCheckResult<T> {
+                    fn catch_inference_error(self) -> Result<Option<T>, TypeCheckError>;
+                }
+                impl<T> TypeCheckResult<T> for Result<T, TypeCheckError> {
+                    fn catch_inference_error(self) -> Result<Option<T>, TypeCheckError> {
+                        match self {
+                            Ok(t) => Ok(Some(t)),
+                            Err(e) => {
+                                // TODO(errors): make this better :(
+                                if e.contains("failed to infer") {
+                                    Ok(None)
+                                } else {
+                                    Err(e)
+                                }
                             }
-                        })?;
+                        }
+                    }
+                }
+
+                // try infer but fall back if it fails
+                let (func_term, func) = func_term
+                    .type_check(Some(check_func), true, ctx)
+                    .catch_inference_error()?
+                    .map_or_else(|| func_term.type_check(None, false, ctx), Ok)?;
 
                 match func.upper_concrete(ctx)? {
                     Type::Arr {
