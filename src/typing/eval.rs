@@ -4,23 +4,40 @@ use crate::{
     common::WithInfo,
     reprs::untyped_ir as uir,
     typing::{
-        Context, InternedType, TypeCheckError,
-        context::{TyArenaContext, TyVarContext},
-        expect_type, prepend,
+        InternedType, TypeCheckError,
+        context::{ContextInner, TyArenaContext, TyVarContext},
+        prepend,
+        subtyping::expect_type,
         ty::{TyBounds, Type},
     },
 };
 
+// unfortunately no trait aliases
+macro_rules! ctx {
+    () => {
+        ctx!('a, 'inn)
+    };
+    ($a:lifetime, $inn:lifetime) => {
+         impl TyArenaContext<$a, Inner = &$inn ContextInner<$a>>
+            + TyVarContext<$a, TyVar = TyBounds<$a>>
+    };
+}
+
 pub(super) trait TyEval<'i: 'a, 'a> {
     type Evaled;
 
-    fn eval(&self, ctx: &Context<'a, '_>) -> Result<Self::Evaled, TypeCheckError>;
+    fn eval<'inn>(&self, ctx: &ctx!()) -> Result<Self::Evaled, TypeCheckError>
+    where
+        'a: 'inn;
 }
 
 impl<'i: 'a, 'a> TyEval<'i, 'a> for uir::Type<'i> {
     type Evaled = InternedType<'a>;
 
-    fn eval(&self, ctx: &Context<'a, '_>) -> Result<Self::Evaled, TypeCheckError> {
+    fn eval<'inn>(&self, ctx: &ctx!()) -> Result<Self::Evaled, TypeCheckError>
+    where
+        'a: 'inn,
+    {
         let WithInfo(_info, ty) = self;
 
         let ty = match ty {
@@ -65,7 +82,10 @@ impl<'i: 'a, 'a> TyEval<'i, 'a> for uir::Type<'i> {
 impl<'i: 'a, 'a> TyEval<'i, 'a> for uir::TyBounds<'i> {
     type Evaled = TyBounds<'a>;
 
-    fn eval(&self, ctx: &Context<'a, '_>) -> Result<Self::Evaled, TypeCheckError> {
+    fn eval<'inn>(&self, ctx: &ctx!()) -> Result<Self::Evaled, TypeCheckError>
+    where
+        'a: 'inn,
+    {
         let uir::TyBounds { upper, lower } = self;
         let upper = upper.as_ref().map(|ty| ty.eval(ctx)).transpose()?;
         let lower = lower.as_ref().map(|ty| ty.eval(ctx)).transpose()?;
@@ -82,7 +102,10 @@ impl<'i: 'a, 'a> TyEval<'i, 'a> for uir::TyBounds<'i> {
 impl<'i: 'a, 'a, T: TyEval<'i, 'a>> TyEval<'i, 'a> for Option<T> {
     type Evaled = Option<T::Evaled>;
 
-    fn eval(&self, ctx: &Context<'a, '_>) -> Result<Self::Evaled, TypeCheckError> {
+    fn eval<'inn>(&self, ctx: &ctx!()) -> Result<Self::Evaled, TypeCheckError>
+    where
+        'a: 'inn,
+    {
         self.as_ref().map(|t| t.eval(ctx)).transpose()
     }
 }
