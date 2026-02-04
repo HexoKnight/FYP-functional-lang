@@ -1,9 +1,21 @@
+use std::ops::Range;
+
 use crate::newtype_derive;
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct Span<'i> {
     pub text: &'i str,
     pub start: usize,
+}
+
+impl Span<'_> {
+    pub fn end(self) -> usize {
+        self.start + self.text.len()
+    }
+
+    pub fn range(self) -> Range<usize> {
+        self.start..self.end()
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -53,7 +65,6 @@ impl Lvl {
     }
 
     /// deeper than or equal to
-    #[must_use]
     pub fn deeper_than(self, other: Self) -> bool {
         self.0 >= other.0
     }
@@ -64,14 +75,12 @@ impl Lvl {
     }
 
     /// deepen level by one level (shouldn't reach maximum)
-    #[must_use]
     pub fn deeper(self) -> Self {
         Self(self.0 + 1)
     }
 
     /// translate level by difference between other levels (shouldn't reach maximum)
     /// returns None if the result is invalid (ie. negative level)
-    #[must_use]
     pub fn translate(self, before: Self, after: Self) -> Option<Self> {
         (self.0 + after.0).checked_sub(before.0).map(Self)
     }

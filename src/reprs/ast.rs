@@ -51,9 +51,14 @@ pub struct TyBounds<'i> {
     pub lower: Option<Type<'i>>,
 }
 
-#[derive(Hash, Eq, PartialEq, Debug)]
-pub struct Ident<'i> {
-    pub name: &'i str,
+#[derive(Debug)]
+pub struct Ident<'i>(pub Span<'i>);
+
+impl Eq for Ident<'_> {}
+impl PartialEq for Ident<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.text == other.0.text
+    }
 }
 
 pub type Type<'i> = WithInfo<Span<'i>, RawType<'i>>;

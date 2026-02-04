@@ -25,7 +25,7 @@ match {
     _
 }
 
-Ident: Ident<'input> = <r"[a-zA-Z]+"> => Ident { name: <> };
+Ident: Ident<'input> = <start:@L> <text:r"[a-zA-Z]+"> => Ident(Span { text, start, });
 
 WithInfo<T>: WithInfo<Span<'input>, T> = {
     <start:@L> <inner:T> <end:@R> => WithInfo(Span {

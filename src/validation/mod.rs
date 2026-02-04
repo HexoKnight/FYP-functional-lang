@@ -54,13 +54,21 @@ mod context {
 }
 
 mod error {
-    use std::borrow::Cow;
+    use std::{borrow::Cow, ops::Range};
 
     use annotate_snippets::{AnnotationKind, Group, Level, Snippet};
 
     pub enum ValidationError<'i> {
-        VarNotFound { ty_var: bool, name: &'i str },
-        SameLabel { name: &'i str },
+        VarNotFound {
+            ty_var: bool,
+            name: &'i str,
+            span: Range<usize>,
+        },
+        SameLabel {
+            name: &'i str,
+            first_span: Range<usize>,
+            second_span: Range<usize>,
+        },
     }
 
     impl<'i> ValidationError<'i> {
@@ -72,15 +80,31 @@ mod error {
             let snippet = Snippet::source(source).path(origin.into());
 
             let group = match self {
-                ValidationError::VarNotFound { ty_var, name } => Level::ERROR
+                ValidationError::VarNotFound { ty_var, name, span } => Level::ERROR
                     .primary_title(format!(
                         "{}variable '{name}' not found",
                         if ty_var { "type " } else { "" }
                     ))
-                    .element(snippet.annotation(AnnotationKind::Primary.span(0..0))),
-                ValidationError::SameLabel { name } => Group::with_title(
-                    Level::ERROR.primary_title(format!("label '{name}' appears multiple times")),
-                ),
+                    .element(snippet.annotation(AnnotationKind::Primary.span(span))),
+                ValidationError::SameLabel {
+                    name,
+                    first_span,
+                    second_span,
+                } => Level::ERROR
+                    .primary_title(format!("label '{name}' appears multiple times"))
+                    .element(
+                        snippet
+                            .annotation(
+                                AnnotationKind::Context
+                                    .span(first_span)
+                                    .label("initially appears here"),
+                            )
+                            .annotation(
+                                AnnotationKind::Primary
+                                    .span(second_span)
+                                    .label("appears here again"),
+                            ),
+                    ),
             };
 
             vec![group]
@@ -141,7 +165,7 @@ impl<'i> Validate<'i> for ast::Term<'i> {
                 ir::RawTerm::Abs {
                     arg_structure,
                     arg_type: arg_type.validate(ctx)?,
-                    body: body.validate(&ctx.push_vars(arg_vars.map(|i| i.name)))?,
+                    body: body.validate(&ctx.push_vars(arg_vars.map(|i| i.0.text)))?,
                 }
             }
             ast::RawTerm::App { func, arg } => ir::RawTerm::App {
@@ -149,25 +173,26 @@ impl<'i> Validate<'i> for ast::Term<'i> {
                 arg: arg.validate(ctx)?,
             },
             ast::RawTerm::TyAbs { arg, bounds, body } => ir::RawTerm::TyAbs {
-                name: arg.name,
+                name: arg.0.text,
                 bounds: bounds.validate(ctx)?,
-                body: body.validate(&ctx.push_ty_var(arg.name))?,
+                body: body.validate(&ctx.push_ty_var(arg.0.text))?,
             },
             ast::RawTerm::TyApp { func, arg } => ir::RawTerm::TyApp {
                 abs: func.validate(ctx)?,
                 arg: arg.validate(ctx)?,
             },
             ast::RawTerm::Var(ident) => {
-                let Some(index) = ctx.find_var(ident.name) else {
+                let Some(index) = ctx.find_var(ident.0.text) else {
                     return Err(ValidationError::VarNotFound {
                         ty_var: false,
-                        name: ident.name,
+                        name: ident.0.text,
+                        span: ident.0.range(),
                     });
                 };
                 ir::RawTerm::Var(index)
             }
             ast::RawTerm::Enum(enum_type, variant) => {
-                ir::RawTerm::Enum(enum_type.validate(ctx)?, Label(variant.name))
+                ir::RawTerm::Enum(enum_type.validate(ctx)?, Label(variant.0.text))
             }
             ast::RawTerm::Match(enum_type, arms) => ir::RawTerm::Match(
                 enum_type.validate(ctx)?,
@@ -204,15 +229,16 @@ impl<'i> Validate<'i> for ast::Type<'i> {
                 bounds,
                 result,
             } => ir::RawType::TyAbs {
-                name: arg.name,
+                name: arg.0.text,
                 bounds: bounds.validate(ctx)?,
-                result: result.validate(&ctx.push_ty_var(arg.name))?,
+                result: result.validate(&ctx.push_ty_var(arg.0.text))?,
             },
             ast::RawType::TyVar(ident) => {
-                let Some(level) = ctx.find_ty_var(ident.name) else {
+                let Some(level) = ctx.find_ty_var(ident.0.text) else {
                     return Err(ValidationError::VarNotFound {
                         ty_var: true,
-                        name: ident.name,
+                        name: ident.0.text,
+                        span: ident.0.range(),
                     });
                 };
                 ir::RawType::TyVar(level)
@@ -306,9 +332,13 @@ fn check_unique_labels<'i, 'a, I>(
 ) -> impl Iterator<Item = Result<'i, (&'a ast::Ident<'i>, Label<'i>, &'a I)>> {
     let mut labels = HashMap::new();
     labelled_items.iter().map(move |(ident, i)| {
-        let label = Label(ident.name);
-        if let Some(_prev_ident) = labels.insert(label, ident) {
-            return Err(ValidationError::SameLabel { name: label.0 });
+        let label = Label(ident.0.text);
+        if let Some(prev_ident) = labels.insert(label, ident) {
+            return Err(ValidationError::SameLabel {
+                name: label.0,
+                first_span: prev_ident.0.range(),
+                second_span: ident.0.range(),
+            });
         }
         Ok((ident, label, i))
     })
