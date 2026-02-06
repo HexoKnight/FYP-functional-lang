@@ -184,6 +184,10 @@ impl<'i: 'a, 'a, 'inn> TypeCheck<'i, 'a, 'inn> for uir::Term<'i> {
             None
         };
 
+        // a sentinel value used as TyBounds::name to represent an applied (ie. concrete) bounds
+        // notably it must not be nameable so cannot be a valid type var name
+        const TY_APP_NAME: &str = "$";
+
         let (term, ty) = match term {
             uir::RawTerm::Abs {
                 arg_structure,
@@ -352,21 +356,25 @@ impl<'i: 'a, 'a, 'inn> TypeCheck<'i, 'a, 'inn> for uir::Term<'i> {
 
                 let (check_result, infer) = if let Some(check_type) = check_type.take() {
                     if let Type::TyAbs {
-                        name: _,
+                        name: check_name,
                         bounds: check_bounds,
                         result: check_result,
                     } = check_type
                     {
-                        TyBounds::expect_bounds(check_bounds, &bounds, true, ctx).map_err(
-                            try_prepend(|| {
-                                Ok(format!(
-                                    "expected bounds (or wider): {}\n\
-                                    but found:                  {}",
-                                    check_bounds.display(ctx)?,
-                                    bounds.display(ctx)?
-                                ))
-                            }),
-                        )?;
+                        if *check_name != TY_APP_NAME {
+                            // if check_name == TY_APP_NAME, the bounds will be checked afterwarss
+                            // so its fine to leave it until then
+                            TyBounds::expect_bounds(check_bounds, &bounds, true, ctx).map_err(
+                                try_prepend(|| {
+                                    Ok(format!(
+                                        "expected bounds (or wider): {}\n\
+                                        but found:                  {}",
+                                        check_bounds.display(ctx)?,
+                                        bounds.display(ctx)?
+                                    ))
+                                }),
+                            )?;
+                        };
 
                         (Some(*check_result), None)
                     } else if infer_ty_args {
@@ -410,7 +418,7 @@ impl<'i: 'a, 'a, 'inn> TypeCheck<'i, 'a, 'inn> for uir::Term<'i> {
 
                 let check_abs = check_type.take().map(|check_type| {
                     ctx.intern(Type::TyAbs {
-                        name: "$",
+                        name: TY_APP_NAME,
                         bounds: TyBounds {
                             upper: Some(arg),
                             lower: Some(arg),

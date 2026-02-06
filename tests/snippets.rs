@@ -443,6 +443,10 @@ fn ty_app() {
         }",
         "enum {a: (), b: ()} -> [A <bool >bool] A -> (A, bool)",
     );
+
+    evaluate_check_type(r"(?T ?R >T \r:R r)[!]", "[R >!] R -> R");
+    evaluate_check_type(r"(?T ?R >T \r:R r)[!][bool]", "bool -> bool");
+    evaluate_check_type(r"(?T ?R >T \r:R r)[!][bool] true", "bool");
 }
 
 #[test]
@@ -574,4 +578,18 @@ fn type_arg_inference() {
     );
     // inference is very local currently (app <-> match <-> id is 2 separations)
     type_check_failure(r"(?T \t t).\id:[T]T->T match {wrap id} (enum wrap true)");
+
+    evaluate_check_type(r"(?T ?R >T \t:T t.\r:R r) true", "bool");
+    // inference is not powerful enough currently
+    type_check_failure(r"(?T ?R >T \r:R r) true");
+
+    evaluate_check_type(
+        r"\id: [T][R>T] R -> R id[bool] true",
+        "([T] [R >T] R -> R) -> bool",
+    );
+    evaluate_check_type(r"(?T ?R >T \r:R r)[bool] true", "bool");
+
+    // limitation of current contravariant type arg inference
+    type_check_failure(r"\id: [T][R>T] R -> R id[!] true");
+    type_check_failure(r"(?T ?R >T \r:R r)[!] true");
 }
