@@ -300,7 +300,7 @@ impl<'i: 'a, 'a, 'inn> TypeCheck<'i, 'a, 'inn> for uir::Term<'i> {
                         .type_check(Some(check_func), true, ctx)
                         .or_else(|e| {
                             // TODO(errors): make this better :(
-                            if e.contains("failed to infer") {
+                            if e.contains("failed to infer") | e.contains("type inference error") {
                                 func_term.type_check(None, false, ctx)
                             } else {
                                 Err(e)

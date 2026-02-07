@@ -209,7 +209,7 @@ mod inference {
             merge::{join, meet},
             prepend,
             subtyping::{Context, expect_type_rec},
-            ty::{TyBounds, Type},
+            ty::{TyBounds, TyDisplay, Type},
             ty_eq,
         },
     };
@@ -236,6 +236,18 @@ mod inference {
     struct TyConstraintInner<'a> {
         initial_bounds: TyBounds<'a>,
 
+        /// the apparent 'variance' according to how the type is (un)constrained
+        ///
+        /// eg. `T -> T` is invariant in `T`,
+        /// but if it is constrained to `bool -> ?`,
+        /// then it's unconstrained variance would be covariant,
+        /// while if it is constrained to `bool -> bool`,
+        /// it's unconstrained variance would be constant,
+        ///
+        /// it is calculated here assuming an initial `subtype == true`
+        /// so must be `.invert()`ed if `!subtype`
+        unconstrained_variance: Variance,
+
         upper: InternedType<'a>,
         lower: InternedType<'a>,
     }
@@ -249,6 +261,7 @@ mod inference {
 
             Self(Rc::new(RefCell::new(TyConstraintInner {
                 initial_bounds,
+                unconstrained_variance: Variance::Constant,
                 upper: initial_bounds.get_upper(ctx),
                 lower: initial_bounds.get_lower(ctx),
             })))
@@ -329,6 +342,7 @@ mod inference {
             };
             let TyConstraintInner {
                 initial_bounds,
+                unconstrained_variance,
                 upper,
                 lower,
             } = inner_cell.into_inner();
@@ -352,30 +366,40 @@ mod inference {
                 Ok(())
             );
 
-            match (variance, subtype) {
+            // see `constraint_variance` definition
+            let unconstrained_variance = if subtype {
+                unconstrained_variance
+            } else {
+                unconstrained_variance.invert()
+            };
+
+            // Constant means the type is not mentioned so it doesn't matter which bound we choose.
+            // However, we cannot fallback when invariant as in that case it does matter, we just
+            // don't know how.
+            //
+            // We fallback to 'constaint variance' when it's co(ntra)variant as a best effort
+            // guess.
+            match (variance, unconstrained_variance, subtype) {
                 // the best type would be the smallest one
-                (Variance::Covariant, true) | (Variance::Contravariant, false) => Ok(lower),
+                (Variance::Constant, _, _)
+                | (Variance::Covariant, _, true)
+                | (Variance::Contravariant, _, false)
+                | (Variance::Invariant, Variance::Covariant, true)
+                | (Variance::Invariant, Variance::Contravariant, false) => Ok(lower),
                 // the best type would be the largest one
-                (Variance::Covariant, false) | (Variance::Contravariant, true) => Ok(upper),
-                (
-                    // constant: means the type is not mentioned
-                    // so it doesn't matter which bound we choose
-                    //
-                    // invariant: there is no best type so we just try our best,
-                    // though this may need to become a hard error in the future
-                    Variance::Constant | Variance::Invariant,
-                    subtype,
-                ) => {
-                    if matches!(upper, Type::Any) {
-                        Ok(lower)
-                    } else if matches!(lower, Type::Never) {
-                        Ok(upper)
-                    } else if subtype {
-                        Ok(lower)
-                    } else {
-                        Ok(upper)
-                    }
-                }
+                (Variance::Covariant, _, false)
+                | (Variance::Contravariant, _, true)
+                | (Variance::Invariant, Variance::Covariant, false)
+                | (Variance::Invariant, Variance::Contravariant, true) => Ok(upper),
+                // invariant so there is no best type so we just try our best,
+                // though this may need to become a hard error in the future
+                (Variance::Invariant, Variance::Constant | Variance::Invariant, _) => Err(format!(
+                    "cannot infer a single type for invariant type argument\n\
+                    upper: {}\n\
+                    lower: {}",
+                    upper.display(ctx.fnd_ctx())?,
+                    lower.display(ctx.fnd_ctx())?
+                )),
             }
         }
     }
@@ -415,7 +439,7 @@ mod inference {
         }
     }
 
-    impl Type<'_> {
+    impl<'a> Type<'a> {
         pub(super) fn get_variance_of(&self, ty_var_level: Lvl) -> Variance {
             match self {
                 Type::TyAbs {
@@ -423,7 +447,6 @@ mod inference {
                     bounds: TyBounds { upper, lower },
                     result,
                 } => [
-                    // TODO: test
                     upper
                         .map(|t| t.get_variance_of(ty_var_level).invert())
                         .unwrap_or(Variance::Constant),
@@ -459,6 +482,66 @@ mod inference {
                 // the unknown type should in fact never appear here but we allow it because
                 // throwing an error would complicate this function
                 Type::Bool | Type::Any | Type::Never | Type::Unknown => Variance::Constant,
+            }
+        }
+
+        pub(super) fn update_unconstrained_variances(
+            &self,
+            subtype: bool,
+            ctx: &Context<'a, '_>,
+        ) -> Result<(), TypeCheckError> {
+            match self {
+                Type::TyAbs {
+                    name,
+                    bounds: bounds @ TyBounds { upper, lower },
+                    result,
+                } => {
+                    if let Some(upper) = upper {
+                        upper.update_unconstrained_variances(!subtype, ctx)?;
+                    }
+                    if let Some(lower) = lower {
+                        lower.update_unconstrained_variances(subtype, ctx)?;
+                    }
+                    result.update_unconstrained_variances(
+                        subtype,
+                        &ctx.push_unbound_ty_var(name, name, *bounds),
+                    )
+                }
+                Type::TyVar(level) => {
+                    let (_, ty_var) = ctx.get_found_ty_var_unwrap(*level)?;
+                    if let TyVar::Inferred(ty_constraint) = ty_var {
+                        let variance = if subtype {
+                            Variance::Covariant
+                        } else {
+                            Variance::Contravariant
+                        };
+                        let new_varaince = ty_constraint
+                            .0
+                            .borrow()
+                            .unconstrained_variance
+                            .add(variance);
+                        ty_constraint.0.borrow_mut().unconstrained_variance = new_varaince;
+                    }
+                    Ok(())
+                }
+                Type::Arr { arg, result } => {
+                    arg.update_unconstrained_variances(!subtype, ctx)?;
+                    result.update_unconstrained_variances(subtype, ctx)
+                }
+                Type::Enum(variants) => variants
+                    .0
+                    .values()
+                    .try_for_each(|t| t.update_unconstrained_variances(subtype, ctx)),
+                Type::Record(fields) => fields
+                    .0
+                    .values()
+                    .try_for_each(|t| t.update_unconstrained_variances(subtype, ctx)),
+                Type::Tuple(elems) => elems
+                    .iter()
+                    .try_for_each(|t| t.update_unconstrained_variances(subtype, ctx)),
+                // the unknown type should in fact never appear here but we allow it because
+                // throwing an error would complicate this function
+                Type::Bool | Type::Any | Type::Never | Type::Unknown => Ok(()),
             }
         }
     }
@@ -516,6 +599,8 @@ fn expect_type_rec<'a>(
     match (expected, found, subtype) {
         (Type::Bool, Type::Bool, _) | (_, Type::Any, false) | (_, Type::Never, true) => Ok(found),
         (Type::Any, _, true) | (Type::Never, _, false) | (Type::Unknown, _, _) => {
+            // this _should_ be only place `found` would be unconstrained
+            found.update_unconstrained_variances(subtype, ctx)?;
             Ok(found)
         }
         (_, Type::Unknown, _) => Err("illegal failure: Unknown cannot be a found type".to_string()),
@@ -590,19 +675,10 @@ fn expect_type_rec<'a>(
                 drop(ctx_);
                 let level = ctx.next_found_ty_var_level();
                 let variance = result.get_variance_of(level);
-                let satisfy_result = constraint.satisfy(variance, subtype, ctx);
-                match satisfy_result {
-                    Ok(ty_arg @ Type::Never) => Err(format!(
-                        "failed to infer type argument: {name}\n\
-                        note: inferred {} but that is typically incorrect",
-                        ty_arg.display(ctx.fnd_ctx())?
-                    )),
-                    Ok(ty_arg) => Ok(result.substitute_ty_var(level, ty_arg, ctx)),
-                    Err(mut e) => {
-                        e.insert_str(0, &format!("failed to infer type argument: {name}\n"));
-                        Err(e)
-                    }
-                }
+                constraint
+                    .satisfy(variance, subtype, ctx)
+                    .map_err(prepend(|| format!("failed to infer type argument: {name}")))
+                    .map(|ty_arg| result.substitute_ty_var(level, ty_arg, ctx))
             })
         }
         (Type::TyVar(level_expected), Type::TyVar(level_found), _) => {
@@ -760,7 +836,7 @@ fn handle_found_ty_var<'a>(
     subtype: bool,
     ctx: &Context<'a, '_>,
 ) -> Result<InternedType<'a>, TypeCheckError> {
-    let (_, var_found) = ctx.get_found_ty_var_unwrap(level_found)?;
+    let (name, var_found) = ctx.get_found_ty_var_unwrap(level_found)?;
     match var_found {
         TyVar::Unbound(bounds_found) => {
             // a type is guaranteed to be a supertype/subtype of the instantiated type iff it is a
@@ -783,7 +859,11 @@ fn handle_found_ty_var<'a>(
             ))?;
         }
         TyVar::Inferred(ty_constraint) => {
-            ty_constraint.constrain(level_found, expected, subtype, ctx)?;
+            ty_constraint
+                .constrain(level_found, expected, subtype, ctx)
+                .map_err(try_prepend(|| {
+                    Ok(format!("failed to infer type argument: {name}"))
+                }))?;
         }
     }
     Ok(found)

@@ -511,8 +511,7 @@ fn type_arg_inference() {
     type_check_failure(r"\x:! \id:[A]A->A id x");
 
     evaluate_check_type(r"(?T \x:T x) true", "bool");
-    // may relax in the future
-    type_check_failure(r"(?T \x:bool x) true");
+    evaluate_check_type(r"(?T \x:bool x) true", "bool");
 
     let uncurry = def(
         "uncurry: [A] [B] [C] (A -> B -> C) -> ((A, B) -> C)",
@@ -581,6 +580,7 @@ fn type_arg_inference() {
 
     evaluate_check_type(r"(?T ?R >T \t:T t.\r:R r) true", "bool");
     // inference is not powerful enough currently
+    // (requires knowing the inferred value of T during the inference of R)
     type_check_failure(r"(?T ?R >T \r:R r) true");
 
     evaluate_check_type(
@@ -590,6 +590,9 @@ fn type_arg_inference() {
     evaluate_check_type(r"(?T ?R >T \r:R r)[bool] true", "bool");
 
     // limitation of current contravariant type arg inference
-    type_check_failure(r"\id: [T][R>T] R -> R id[!] true");
-    type_check_failure(r"(?T ?R >T \r:R r)[!] true");
+    evaluate_check_type(
+        r"\id: [T][R>T] R -> R id[!] true",
+        "([T] [R >T] R -> R) -> bool",
+    );
+    evaluate_check_type(r"(?T ?R >T \r:R r)[!] true", "bool");
 }
