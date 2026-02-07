@@ -582,6 +582,8 @@ fn type_arg_inference() {
     // inference is not powerful enough currently
     // (requires knowing the inferred value of T during the inference of R)
     type_check_failure(r"(?T ?R >T \r:R r) true");
+    // causes illegal failure
+    type_check_failure(r"(?T ?R <T \r:R r) true");
 
     evaluate_check_type(
         r"\id: [T][R>T] R -> R id[bool] true",

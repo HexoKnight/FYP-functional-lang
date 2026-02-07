@@ -207,8 +207,8 @@ mod inference {
             InternedType, TypeCheckError,
             context::{MultiContext, TyArenaContext},
             merge::{join, meet},
-            prepend,
             subtyping::{Context, expect_type_rec},
+            try_prepend,
             ty::{TyBounds, TyDisplay, Type},
             ty_eq,
         },
@@ -353,8 +353,18 @@ mod inference {
             }
 
             // technically we don't really expect either but this is close enough
-            expect_type_rec(upper, lower, true, false, ctx)
-                .map_err(prepend(|| "unable to satisfy constraints"))?;
+            // TODO: the context passed here is not correct and can cause illegal errors
+            // but using the correct context (ie. some derivative of `ctx.fnd_ctx*()`)
+            // causes a type arg inference regression
+            expect_type_rec(upper, lower, true, false, ctx).map_err(try_prepend(|| {
+                Ok(format!(
+                    "unable to satisfy constraints:\n\
+                    upper: {}\n\
+                    lower: {}",
+                    upper.display(ctx.fnd_ctx())?,
+                    lower.display(ctx.fnd_ctx())?
+                ))
+            }))?;
 
             debug_assert_eq!(
                 expect_type_rec(initial_bounds.get_upper(ctx), upper, true, false, ctx).map(|_| ()),
